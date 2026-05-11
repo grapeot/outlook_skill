@@ -1,0 +1,11 @@
+{
+  "include": [
+    "src",
+    "tests"
+  ],
+  "exclude": [
+    ".venv",
+    "build",
+    "dist"
+  ]
+}
