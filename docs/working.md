@@ -2,6 +2,10 @@
 
 ## Changelog
 
+### 2026-05-19
+
+- Changed `calendar invite` to create attendee-less appointments by default. `--to` is now optional; when omitted the Graph payload uses an empty `attendees` list. Passing `--to` or `--optional-attendee` still includes attendees exactly as before. Updated library validation and tests accordingly.
+
 ### 2026-05-05
 
 - Added standalone `mail send` using Microsoft Graph `POST /me/sendMail`, with `--dry-run` as the default safety gate.

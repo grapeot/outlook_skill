@@ -35,7 +35,7 @@ All commands run from the project root.
 .venv/bin/python -m outlook_skill.cli mail reply --graph-id <id> --body-file <path> [--body-format text|html|markdown] [--attach <path>]... [--dry-run]
 .venv/bin/python -m outlook_skill.cli mail send --to <addr> --subject <subject> --body-file <path> [--body-format text|html|markdown] [--cc <addr>]... [--bcc <addr>]... [--attach <path>]... [--dry-run]
 
-.venv/bin/python -m outlook_skill.cli calendar invite --to <addr> --subject <subject> --start <YYYY-MM-DDTHH:MM:SS> --end <YYYY-MM-DDTHH:MM:SS> [--timezone UTC] [--optional-attendee <addr>]... [--location <text>] [--body-file <path>] [--dry-run]
+.venv/bin/python -m outlook_skill.cli calendar invite [--to <addr>]... --subject <subject> --start <YYYY-MM-DDTHH:MM:SS> --end <YYYY-MM-DDTHH:MM:SS> [--timezone UTC] [--optional-attendee <addr>]... [--location <text>] [--body-file <path>] [--dry-run]
 .venv/bin/python -m outlook_skill.cli calendar list [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--skip-recurring daily,weekly] --format json
 ```
 
@@ -67,7 +67,7 @@ Replies in-thread via `createReply` draft flow. Requires `Mail.ReadWrite` + `Mai
 
 ### `calendar invite`
 
-Creates a calendar event with attendees via `POST /me/calendar/events`. Requires `Calendars.ReadWrite`. Supports required and optional attendees, location, and body. `--dry-run` validates the payload without calling Graph.
+Creates a calendar event via `POST /me/calendar/events`. Requires `Calendars.ReadWrite`. By default it creates an attendee-less appointment; pass `--to` or `--optional-attendee` only when someone should be invited. Supports location and body. `--dry-run` validates the payload without calling Graph.
 
 ### `calendar list`
 
