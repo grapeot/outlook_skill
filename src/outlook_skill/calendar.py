@@ -27,8 +27,6 @@ def create_calendar_invite(
 ) -> dict[str, object]:
     if not subject.strip():
         raise OutlookSkillError("calendar invite requires --subject.")
-    if not attendees and not optional_attendees:
-        raise OutlookSkillError("calendar invite requires at least one attendee.")
     if body_format not in ("text", "html", "markdown", "md"):
         raise OutlookSkillError(f"Unsupported body format: {body_format}")
     _validate_time_range(start, end)

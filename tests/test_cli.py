@@ -276,6 +276,97 @@ def test_calendar_invite_cli_delegates_to_calendar(monkeypatch, capsys, tmp_path
     assert captured_call["body_text"] == "Agenda"
 
 
+def test_calendar_invite_cli_without_to(monkeypatch, capsys):
+    captured_call = {}
+
+    def fake_create_calendar_invite(settings, *, subject, start, end, timezone, attendees, body_text, body_format, location, optional_attendees, dry_run):
+        captured_call.update({
+            "subject": subject,
+            "start": start,
+            "end": end,
+            "timezone": timezone,
+            "attendees": attendees,
+            "body_text": body_text,
+            "body_format": body_format,
+            "location": location,
+            "optional_attendees": optional_attendees,
+            "dry_run": dry_run,
+        })
+        return {"created": False, "dry_run": dry_run}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "create_calendar_invite", fake_create_calendar_invite)
+
+    exit_code = cli.main([
+        "calendar",
+        "invite",
+        "--subject",
+        "Appointment",
+        "--start",
+        "2026-05-06T10:00:00",
+        "--end",
+        "2026-05-06T10:30:00",
+        "--timezone",
+        "UTC",
+        "--location",
+        "Office",
+        "--dry-run",
+        "--format",
+        "json",
+    ])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert json.loads(captured.out)["dry_run"] is True
+    assert captured_call["attendees"] == ()
+    assert captured_call["optional_attendees"] == ()
+    assert captured_call["subject"] == "Appointment"
+
+
+def test_calendar_invite_cli_optional_attendee_without_to(monkeypatch, capsys):
+    captured_call = {}
+
+    def fake_create_calendar_invite(settings, *, subject, start, end, timezone, attendees, body_text, body_format, location, optional_attendees, dry_run):
+        captured_call.update({
+            "subject": subject,
+            "start": start,
+            "end": end,
+            "timezone": timezone,
+            "attendees": attendees,
+            "body_text": body_text,
+            "body_format": body_format,
+            "location": location,
+            "optional_attendees": optional_attendees,
+            "dry_run": dry_run,
+        })
+        return {"created": False, "dry_run": dry_run}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "create_calendar_invite", fake_create_calendar_invite)
+
+    exit_code = cli.main([
+        "calendar",
+        "invite",
+        "--optional-attendee",
+        "optional@example.com",
+        "--subject",
+        "Appointment",
+        "--start",
+        "2026-05-06T10:00:00",
+        "--end",
+        "2026-05-06T10:30:00",
+        "--dry-run",
+        "--format",
+        "json",
+    ])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert json.loads(captured.out)["dry_run"] is True
+    assert captured_call["attendees"] == ()
+    assert captured_call["optional_attendees"] == ("optional@example.com",)
+
+
 def test_calendar_list_cli_delegates_to_calendar(monkeypatch, capsys):
     captured_call = {}
 
