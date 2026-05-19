@@ -105,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     calendar_parser = subparsers.add_parser("calendar")
     calendar_subparsers = calendar_parser.add_subparsers(dest="calendar_command", required=True)
     calendar_invite = calendar_subparsers.add_parser("invite")
-    calendar_invite.add_argument("--to", action="append", required=True, help="required attendee email address (may repeat)")
+    calendar_invite.add_argument("--to", action="append", help="attendee email address to invite (may repeat)")
     calendar_invite.add_argument("--optional-attendee", action="append", help="optional attendee email address (may repeat)")
     calendar_invite.add_argument("--subject", required=True)
     calendar_invite.add_argument("--start", required=True, help="local date-time, e.g. 2026-05-06T10:00:00")
@@ -279,7 +279,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     start=args.start,
                     end=args.end,
                     timezone=args.timezone,
-                    attendees=tuple(args.to),
+                    attendees=tuple(args.to) if args.to else (),
                     body_text=body_text,
                     body_format=args.body_format,
                     location=args.location,

@@ -111,15 +111,23 @@ def test_create_calendar_invite_markdown_body_converts_to_html(monkeypatch):
     assert "<strong>bold</strong>" in graph_payload["body"]["content"]
 
 
-def test_create_calendar_invite_rejects_missing_attendees():
-    with pytest.raises(OutlookSkillError):
-        calendar.create_calendar_invite(
-            settings(),
-            subject="Meeting",
-            start="2026-05-06T10:00:00",
-            end="2026-05-06T10:30:00",
-            attendees=(),
-        )
+def test_create_calendar_invite_with_no_attendees(monkeypatch):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = calendar.create_calendar_invite(
+        settings(),
+        subject="Appointment",
+        start="2026-05-06T10:00:00",
+        end="2026-05-06T10:30:00",
+        attendees=(),
+    )
+
+    assert payload["created"] is True
+    assert payload["attendees"] == []
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload["attendees"] == []
+    assert "attendees" in graph_payload
 
 
 def test_create_calendar_invite_rejects_missing_subject():
