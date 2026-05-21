@@ -2,7 +2,7 @@
 
 ## Scope
 
-The system covers a deliberately narrow set of Microsoft Graph operations on personal Outlook.com accounts: OAuth2 authentication, mail folder listing, MIME download, local `.eml` + SQLite storage, `.eml` → Markdown rendering, standalone email sending, in-thread reply, and calendar invite creation with event listing.
+The system covers a deliberately narrow set of Microsoft Graph operations on personal Outlook.com accounts: OAuth2 authentication, mail folder listing, MIME download, local `.eml` + SQLite storage, `.eml` → Markdown rendering, standalone email sending, in-thread reply/reply-all, and calendar invite creation with event listing.
 
 This scope serves two goals. First, it gives AI workflows a stable, reusable entry point to a personal Outlook.com mailbox — the commands an agent needs to download, read, search, and optionally send email. Second, it draws a hard line at the skill layer: the system never grows into a full mail client or calendar application.
 
@@ -72,7 +72,7 @@ Dry-run mode (`MailSendAllowFlags.send`) constructs the full payload, logs a sum
 
 ### 9. `replier.py` — In-thread reply
 
-Uses Graph's `createReply` endpoint to build a reply draft from the parent message, then attaches files and sends. Attachments ≤3MB use inline `fileAttachment`; larger attachments use `createUploadSession` for chunked upload. Recipient overrides (`--to`, `--cc`) modify the draft's recipient list before sending.
+Uses Graph's `createReply` or `createReplyAll` endpoint to build a reply draft from the parent message, then patches the body, attaches files, and sends. Attachments ≤3MB use inline `fileAttachment`; larger attachments use `createUploadSession` for chunked upload. Recipient overrides (`--to`, `--cc`) modify the draft's recipient list before sending.
 
 ### 10. `calendar.py` — Calendar operations
 
@@ -153,7 +153,7 @@ When `--format json` is specified, the final result writes to stdout and progres
 
 ### Dry-run as default safety
 
-All write commands (`mail send`, `mail reply`, `calendar invite`) support `--dry-run`. In dry-run mode, the command constructs the full payload, validates inputs, and prints a summary — without calling the Graph write endpoint. This is the safety default for AI agents that should inspect before executing.
+All write commands (`mail send`, `mail reply`, `mail reply-all`, `calendar invite`) support `--dry-run`. In dry-run mode, reply commands create and patch the Graph draft but do not send it; send and invite commands validate the payload without calling their Graph write endpoint. This is the safety default for AI agents that should inspect before executing.
 
 ### Write gating in tests
 
