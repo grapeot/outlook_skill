@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-05-20
+
+- Added `mail reply-all` backed by Microsoft Graph `createReplyAll`, reusing the existing reply draft flow for body patching, recipient overrides, attachments, dry-run summaries, and final send.
+- Added `operation` to reply JSON results so dry-run and sent output distinguishes `reply` from `reply_all`.
+- Added library and CLI tests for reply-all endpoint selection, CLI dispatch, and dry-run not sending the draft.
+
 ### 2026-05-19
 
 - Changed `calendar invite` to create attendee-less appointments by default. `--to` is now optional; when omitted the Graph payload uses an empty `attendees` list. Passing `--to` or `--optional-attendee` still includes attendees exactly as before. Updated library validation and tests accordingly.

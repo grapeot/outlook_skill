@@ -1,24 +1,25 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
 
 from outlook_skill import replier
+from outlook_skill.config import Settings
 from outlook_skill.errors import OutlookSkillError
 
 
 class FakeTransport(httpx.BaseTransport):
-    def __init__(self) -> None:
+    def __init__(self, create_action: str = "createReply") -> None:
         self.requests: list[tuple[str, str, Any]] = []
-        self.draft_id = "DRAFT_123"
+        self.draft_id: str = "DRAFT_123"
+        self.create_action: str = create_action
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         self.requests.append((request.method, str(request.url), request.content))
         url = str(request.url)
-        if request.method == "POST" and url.endswith("/createReply"):
+        if request.method == "POST" and url.endswith(f"/{self.create_action}"):
             return httpx.Response(201, json={"id": self.draft_id, "subject": "Re: Test"})
         if request.method == "PATCH" and f"/me/messages/{self.draft_id}" in url:
             return httpx.Response(200, json={"id": self.draft_id})
@@ -38,9 +39,7 @@ class FakeTransport(httpx.BaseTransport):
         return httpx.Response(404, json={"error": "unexpected"})
 
 
-def test_reply_dry_run_creates_draft_with_attachment(monkeypatch, tmp_path):
-    transport = FakeTransport()
-
+def install_fake_graph(monkeypatch, transport: FakeTransport) -> None:
     class FakeAuthManager:
         def __init__(self, settings): pass
         def get_access_token(self): return "TOKEN"
@@ -54,12 +53,21 @@ def test_reply_dry_run_creates_draft_with_attachment(monkeypatch, tmp_path):
     monkeypatch.setattr(replier, "AuthManager", FakeAuthManager)
     monkeypatch.setattr(replier.httpx, "Client", fake_client)
 
-    settings = type("S", (), {"graph_base_url": "https://example.test/v1.0"})()
+
+def settings() -> Settings:
+    value = object.__new__(type("S", (), {"graph_base_url": "https://example.test/v1.0"}))
+    return cast(Settings, cast(object, value))
+
+
+def test_reply_dry_run_creates_draft_with_attachment(monkeypatch, tmp_path):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
     attach = tmp_path / "note.txt"
     attach.write_text("hello")
 
     payload = replier.reply_to_message(
-        settings,
+        settings(),
         graph_id="ORIG_ID",
         body_text="Hi there",
         body_format="text",
@@ -68,6 +76,7 @@ def test_reply_dry_run_creates_draft_with_attachment(monkeypatch, tmp_path):
     )
 
     assert payload["dry_run"] is True
+    assert payload["operation"] == "reply"
     assert payload["draft_id"] == transport.draft_id
     assert payload["attachment_count"] == 1
     methods = [m for m, _, _ in transport.requests]
@@ -77,23 +86,39 @@ def test_reply_dry_run_creates_draft_with_attachment(monkeypatch, tmp_path):
     assert not any(url.endswith("/send") for _, url, _ in transport.requests)
 
 
+def test_reply_all_dry_run_uses_create_reply_all_and_does_not_send(monkeypatch):
+    transport = FakeTransport(create_action="createReplyAll")
+    install_fake_graph(monkeypatch, transport)
+
+    payload = replier.reply_to_message(
+        settings(),
+        graph_id="ORIG_ID",
+        body_text="Hi all",
+        dry_run=True,
+        reply_all=True,
+    )
+
+    assert payload["dry_run"] is True
+    assert payload["operation"] == "reply_all"
+    assert any(url.endswith("/createReplyAll") for _, url, _ in transport.requests)
+    assert not any(url.endswith("/createReply") for _, url, _ in transport.requests)
+    assert not any(url.endswith("/send") for _, url, _ in transport.requests)
+
+
 def test_reply_rejects_missing_graph_id():
-    settings = type("S", (), {"graph_base_url": "x"})()
     with pytest.raises(OutlookSkillError):
-        replier.reply_to_message(settings, graph_id="", body_text="hi")
+        replier.reply_to_message(settings(), graph_id="", body_text="hi")
 
 
 def test_reply_rejects_bad_format():
-    settings = type("S", (), {"graph_base_url": "x"})()
     with pytest.raises(OutlookSkillError):
-        replier.reply_to_message(settings, graph_id="X", body_text="hi", body_format="xml")
+        replier.reply_to_message(settings(), graph_id="X", body_text="hi", body_format="xml")
 
 
 def test_reply_rejects_missing_attachment(tmp_path):
-    settings = type("S", (), {"graph_base_url": "x"})()
     with pytest.raises(OutlookSkillError):
         replier.reply_to_message(
-            settings,
+            settings(),
             graph_id="X",
             body_text="hi",
             attachments=(tmp_path / "nope.txt",),

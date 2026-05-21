@@ -71,15 +71,16 @@ def build_parser() -> argparse.ArgumentParser:
     mail_export_md.add_argument("--force", action="store_true", help="overwrite existing markdown files")
     mail_export_md.add_argument("--format", choices=("json", "text"), default="text")
 
-    mail_reply = mail_subparsers.add_parser("reply")
-    mail_reply.add_argument("--graph-id", dest="graph_id", required=True, help="Graph message id of the email to reply to")
-    mail_reply.add_argument("--body-file", dest="body_file", required=True, help="path to a file containing the reply body")
-    mail_reply.add_argument("--body-format", choices=("text", "html", "markdown", "md"), default="text")
-    mail_reply.add_argument("--attach", action="append", help="path to attach (may repeat)")
-    mail_reply.add_argument("--to", action="append", help="override reply recipients (may repeat)")
-    mail_reply.add_argument("--cc", action="append", help="override cc recipients (may repeat)")
-    mail_reply.add_argument("--dry-run", action="store_true", help="create the draft but do not send")
-    mail_reply.add_argument("--format", choices=("json", "text"), default="json")
+    for reply_command in ("reply", "reply-all"):
+        mail_reply = mail_subparsers.add_parser(reply_command)
+        mail_reply.add_argument("--graph-id", dest="graph_id", required=True, help="Graph message id of the email to reply to")
+        mail_reply.add_argument("--body-file", dest="body_file", required=True, help="path to a file containing the reply body")
+        mail_reply.add_argument("--body-format", choices=("text", "html", "markdown", "md"), default="text")
+        mail_reply.add_argument("--attach", action="append", help="path to attach (may repeat)")
+        mail_reply.add_argument("--to", action="append", help="override reply recipients (may repeat)")
+        mail_reply.add_argument("--cc", action="append", help="override cc recipients (may repeat)")
+        mail_reply.add_argument("--dry-run", action="store_true", help="create the draft but do not send")
+        mail_reply.add_argument("--format", choices=("json", "text"), default="json")
 
     mail_send = mail_subparsers.add_parser("send")
     mail_send.add_argument("--to", action="append", required=True, help="recipient email address (may repeat)")
@@ -213,7 +214,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 emit_output(payload, args.format)
                 return 0
-            if args.mail_command == "reply":
+            if args.mail_command in ("reply", "reply-all"):
                 attachments = tuple(Path(p) for p in (args.attach or ()))
                 body_path = Path(args.body_file)
                 if not body_path.exists():
@@ -228,6 +229,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     to_override=tuple(args.to) if args.to else (),
                     cc_override=tuple(args.cc) if args.cc else (),
                     dry_run=args.dry_run,
+                    reply_all=args.mail_command == "reply-all",
                 )
                 emit_output(payload, args.format)
                 return 0

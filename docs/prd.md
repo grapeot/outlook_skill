@@ -18,7 +18,7 @@ The system provides ten capabilities, each with a clear module boundary:
 6. **Markdown rendering** (`markdown_renderer.py`): parallel `.eml`→`.md` conversion with configurable workers, plain-text preference with HTML fallback, quote stripping, zero-width character removal, tracking URL simplification, marketing layout table unwrapping
 7. **Mail export** (`exporter.py`): YAML frontmatter Markdown export from local SQLite + `.eml`, with folder/subject/date filtering and slug-based filenames
 8. **Standalone send** (`sender.py`): `POST /me/sendMail` with body-format conversion (Markdown→HTML), inline attachments ≤3MB, `saveToSentItems` toggle, dry-run mode
-9. **In-thread reply** (`replier.py`): `createReply` draft flow, attachment upload (inline for ≤3MB, upload session for larger), recipient override, dry-run that creates draft without sending
+9. **In-thread reply** (`replier.py`): `createReply` / `createReplyAll` draft flow, attachment upload (inline for ≤3MB, upload session for larger), recipient override, dry-run that creates draft without sending
 10. **Calendar** (`calendar.py`): `POST /me/calendar/events` for creating invites with required/optional attendees, `GET /me/calendar/events` for listing events with recurring-event filtering
 
 A rule-based triage system (`spam_triage.py`) overlays the local message store with deterministic sender/subject/body matching, multi-label classification, and persistent labeling. Current rules (`spam` + `low_value`) cover approximately 29% of a 38,000-message corpus through three rounds of iterative refinement.
@@ -31,7 +31,7 @@ Three user types, served by the same library contract:
 
 **AI agents** are the primary consumers. They need stable function interfaces, predictable JSON output, explicit read/write boundaries, and safety defaults that prevent accidental state mutation. They should be able to download, render, search, and optionally send mail without understanding OAuth2 internals or Graph API details.
 
-**Human operators** use the CLI for quick actions: first-time OAuth login, pulling recent Inbox + Archive mail, checking download counts, rendering `.eml` to `.md`, reading a specific message, or dry-running a send before committing.
+**Human operators** use the CLI for quick actions: first-time OAuth login, pulling recent Inbox + Archive mail, checking download counts, rendering `.eml` to `.md`, reading a specific message, or dry-running send/reply actions before committing.
 
 **Project maintainers** need standard project structure, independent docs, layered tests, and a security model that keeps credential handling out of library code.
 
@@ -88,7 +88,7 @@ src/outlook_skill/
 ├── markdown_renderer.py — parallel .eml→.md, HTML cleaning, quote stripping
 ├── exporter.py       — YAML frontmatter export, filtering, slugified filenames
 ├── sender.py         — standalone sendMail, body-format conversion, dry-run
-├── replier.py        — createReply draft flow, attachment upload, recipient override
+├── replier.py        — createReply/createReplyAll draft flow, attachment upload, recipient override
 ├── calendar.py       — invite creation, event listing, recurring filtering
 ├── spam_triage.py    — rule-based labeling, multi-label classification
 ├── mail.py           — (thin) local read and list via store + downloader
@@ -108,4 +108,4 @@ tests/
 
 ## Verification
 
-The test pyramid has three layers: unit tests for pure logic, mocked integration tests for module seams, and live integration tests for the full OAuth2→Graph→local disk pipeline — the last layer defaults to skip and requires explicit env-var gating. Write operations (send, invite) require additional allow flags beyond the base live test flag. A smoke check script exercises the CLI contract end-to-end.
+The test pyramid has three layers: unit tests for pure logic, mocked integration tests for module seams, and live integration tests for the full OAuth2→Graph→local disk pipeline — the last layer defaults to skip and requires explicit env-var gating. Write operations (send, invite) require additional allow flags beyond the base live test flag. Reply dry-runs may create drafts but do not send mail. A smoke check script exercises the CLI contract end-to-end.

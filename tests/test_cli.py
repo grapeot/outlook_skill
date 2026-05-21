@@ -216,6 +216,75 @@ def test_mail_send_cli_delegates_to_sender(monkeypatch, capsys, tmp_path):
     assert captured_call["save_to_sent_items"] is False
 
 
+def test_mail_reply_all_cli_delegates_to_replier(monkeypatch, capsys, tmp_path):
+    body = tmp_path / "body.md"
+    body.write_text("Hello all", encoding="utf-8")
+    attachment = tmp_path / "note.txt"
+    attachment.write_text("attachment", encoding="utf-8")
+    captured_call = {}
+
+    def fake_reply_to_message(
+        settings,
+        *,
+        graph_id,
+        body_text,
+        body_format,
+        attachments,
+        to_override,
+        cc_override,
+        dry_run,
+        reply_all,
+    ):
+        captured_call.update({
+            "graph_id": graph_id,
+            "body_text": body_text,
+            "body_format": body_format,
+            "attachments": attachments,
+            "to_override": to_override,
+            "cc_override": cc_override,
+            "dry_run": dry_run,
+            "reply_all": reply_all,
+        })
+        return {"operation": "reply_all", "dry_run": dry_run, "sent": False}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "reply_to_message", fake_reply_to_message)
+
+    exit_code = cli.main([
+        "mail",
+        "reply-all",
+        "--graph-id",
+        "GRAPH_ID",
+        "--body-file",
+        str(body),
+        "--body-format",
+        "markdown",
+        "--attach",
+        str(attachment),
+        "--to",
+        "to@example.com",
+        "--cc",
+        "cc@example.com",
+        "--dry-run",
+        "--format",
+        "json",
+    ])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert payload["operation"] == "reply_all"
+    assert payload["dry_run"] is True
+    assert captured_call["reply_all"] is True
+    assert captured_call["dry_run"] is True
+    assert captured_call["graph_id"] == "GRAPH_ID"
+    assert captured_call["body_text"] == "Hello all"
+    assert captured_call["body_format"] == "markdown"
+    assert captured_call["attachments"] == (attachment,)
+    assert captured_call["to_override"] == ("to@example.com",)
+    assert captured_call["cc_override"] == ("cc@example.com",)
+
+
 def test_calendar_invite_cli_delegates_to_calendar(monkeypatch, capsys, tmp_path):
     body = tmp_path / "body.txt"
     body.write_text("Agenda", encoding="utf-8")
