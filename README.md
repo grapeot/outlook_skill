@@ -45,7 +45,7 @@ Add a line to your `AGENTS.md`, `CLAUDE.md`, or equivalent agent config file:
 
 > If the user asks about Outlook email (downloading, reading, searching, sending, calendar), read `skills/skill_outlook.md` first, then follow its instructions.
 
-That's it. The AI handles everything else: first-time login (`auth login` opens a browser), downloading mail, rendering markdown, send/reply/calendar operations.
+That's it. The AI handles everything else: first-time login (`auth login` opens a browser), downloading mail, rendering markdown, send/reply/reply-all/calendar operations.
 
 ## For AI Agents
 
@@ -56,8 +56,8 @@ What you need to know up front:
 - **Entry point**: `.venv/bin/python -m outlook_skill.cli <command>` (from the repo root), or `scripts/outlook <command>`
 - **JSON output**: add `--format json` to any command for machine-readable output. Progress bars go to stderr; results go to stdout.
 - **First-time setup**: the human needs to run `auth login` once (opens a browser). After that, token refresh is automatic.
-- **Standard pipeline**: `mail download` → `mail export-md` → grep/search the markdown directory → `mail read --graph-id <id>` for full body → `mail reply` or `mail send` to compose responses.
-- **Safety**: all write commands (`send`, `reply`, `invite`) support `--dry-run`. Use it before executing.
+- **Standard pipeline**: `mail download` → `mail export-md` → grep/search the markdown directory → `mail read --graph-id <id>` for full body → `mail reply`, `mail reply-all`, or `mail send` to compose responses.
+- **Safety**: all write commands (`send`, `reply`, `reply-all`, `invite`) support `--dry-run`. Use it before executing.
 
 When the human hasn't completed setup, tell them clearly what's missing. Common issues:
 - No `.env`: ask them to copy `.env.example` and edit `OUTLOOK_EMAIL`
