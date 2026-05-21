@@ -26,6 +26,7 @@ def reply_to_message(
     to_override: tuple[str, ...] = (),
     cc_override: tuple[str, ...] = (),
     dry_run: bool = False,
+    reply_all: bool = False,
 ) -> dict[str, object]:
     if not graph_id:
         raise OutlookSkillError("reply requires --graph-id.")
@@ -37,6 +38,8 @@ def reply_to_message(
             raise OutlookSkillError(f"Attachment not found: {path}")
 
     content_type, content_value = _prepare_body(body_text, body_format)
+    operation = "reply_all" if reply_all else "reply"
+    create_action = "createReplyAll" if reply_all else "createReply"
 
     token = AuthManager(settings).get_access_token()
     base_url = settings.graph_base_url
@@ -45,7 +48,7 @@ def reply_to_message(
         "Accept": "application/json",
     }
     with httpx.Client(base_url=base_url, timeout=httpx.Timeout(120.0, connect=10.0), headers=headers) as client:
-        draft = _create_reply_draft(client, graph_id=graph_id)
+        draft = _create_reply_draft(client, graph_id=graph_id, create_action=create_action)
         draft_id = cast(str, draft["id"])
 
         patch_payload: dict[str, Any] = {
@@ -70,6 +73,7 @@ def reply_to_message(
 
         if dry_run:
             return {
+                "operation": operation,
                 "dry_run": True,
                 "draft_id": draft_id,
                 "subject": subject if isinstance(subject, str) else None,
@@ -85,6 +89,7 @@ def reply_to_message(
         _post_empty(client, f"/me/messages/{draft_id}/send")
 
         return {
+            "operation": operation,
             "dry_run": False,
             "draft_id": draft_id,
             "subject": subject if isinstance(subject, str) else None,
@@ -107,17 +112,17 @@ def _prepare_body(body_text: str, body_format: str) -> tuple[str, str]:
     return "Text", body_text
 
 
-def _create_reply_draft(client: httpx.Client, *, graph_id: str) -> dict[str, Any]:
-    response = client.post(f"/me/messages/{graph_id}/createReply", json={})
+def _create_reply_draft(client: httpx.Client, *, graph_id: str, create_action: str) -> dict[str, Any]:
+    response = client.post(f"/me/messages/{graph_id}/{create_action}", json={})
     if response.is_error:
         raise GraphApiError(
-            f"Graph createReply failed with status {response.status_code}",
+            f"Graph {create_action} failed with status {response.status_code}",
             status_code=response.status_code,
             response_text=response.text,
         )
     payload = response.json()
     if not isinstance(payload, dict) or "id" not in payload:
-        raise GraphApiError("createReply returned an unexpected payload shape.")
+        raise GraphApiError(f"{create_action} returned an unexpected payload shape.")
     return cast(dict[str, Any], payload)
 
 
