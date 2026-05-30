@@ -5,7 +5,7 @@
 - Download Outlook.com email to local storage
 - Search or read locally cached email
 - Render `.eml` to AI-oriented Markdown
-- Send email, reply in-thread, or reply-all in-thread via Microsoft Graph
+- Create standalone drafts, send email, reply in-thread, or reply-all in-thread via Microsoft Graph
 - Create calendar invites or list upcoming events
 - Apply rule-based triage labels to local messages
 
@@ -32,6 +32,7 @@ All commands run from the project root.
 .venv/bin/python -m outlook_skill.cli mail read --subject "<substring>" [--from <substring>] [--latest | --index N | --graph-id <id>] [--full]
 .venv/bin/python -m outlook_skill.cli mail export-md [--days N] [--folder <name>]... [--subject <substr>] [--from <substr>] [--force]
 
+.venv/bin/python -m outlook_skill.cli mail draft --subject <subject> --body-file <path> [--body-format text|html|markdown] [--to <addr>]... [--cc <addr>]... [--bcc <addr>]... [--attach <path>]...
 .venv/bin/python -m outlook_skill.cli mail reply --graph-id <id> --body-file <path> [--body-format text|html|markdown] [--attach <path>]... [--to <addr>]... [--cc <addr>]... [--dry-run]
 .venv/bin/python -m outlook_skill.cli mail reply-all --graph-id <id> --body-file <path> [--body-format text|html|markdown] [--attach <path>]... [--to <addr>]... [--cc <addr>]... [--dry-run]
 .venv/bin/python -m outlook_skill.cli mail send --to <addr> --subject <subject> --body-file <path> [--body-format text|html|markdown] [--cc <addr>]... [--bcc <addr>]... [--attach <path>]... [--dry-run]
@@ -62,6 +63,10 @@ Exports locally cached `.eml` to YAML frontmatter Markdown in `data/mail/markdow
 
 Sends standalone email via `POST /me/sendMail`. Requires `Mail.Send` scope. Inline attachments up to 3 MB. `--body-format markdown` converts Markdown to HTML before sending. `--dry-run` validates the payload without calling Graph.
 
+### `mail draft`
+
+Creates a standalone draft via `POST /me/messages`. Requires `Mail.ReadWrite` scope. `--to`, `--cc`, and `--bcc` are optional, so agents can save no-recipient drafts for human review. The command never sends; JSON output includes `draft_id`, `web_link`, recipient summaries, and `sent: false`. Inline attachments up to 3 MB are supported.
+
 ### `mail reply` / `mail reply-all`
 
 Replies in-thread via Graph draft flow. `mail reply` uses `createReply`; `mail reply-all` uses `createReplyAll`. Both require `Mail.ReadWrite` + `Mail.Send`. Attachments ≤3 MB use inline `fileAttachment`; larger files use upload session. `--to` / `--cc` override the draft recipients after Graph creates the draft. `--dry-run` creates the draft without sending. JSON output includes `operation: reply` or `operation: reply_all`.
@@ -82,7 +87,7 @@ The standard pipeline:
 2. `mail export-md` — generate YAML frontmatter Markdown
 3. Use `grep` or text search on `data/mail/markdown/` for retrieval
 4. `mail read --graph-id <id>` — read full body of a specific message
-5. `mail reply --graph-id <id>`, `mail reply-all --graph-id <id>`, or `mail send` — compose responses
+5. `mail draft`, `mail reply --graph-id <id>`, `mail reply-all --graph-id <id>`, or `mail send` — compose responses
 
 ## Defaults
 

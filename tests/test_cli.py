@@ -216,6 +216,87 @@ def test_mail_send_cli_delegates_to_sender(monkeypatch, capsys, tmp_path):
     assert captured_call["save_to_sent_items"] is False
 
 
+def test_mail_draft_cli_delegates_to_sender_without_recipients(monkeypatch, capsys, tmp_path):
+    body = tmp_path / "body.md"
+    body.write_text("Hello draft", encoding="utf-8")
+    captured_call = {}
+
+    def fake_create_mail_draft(settings, *, subject, body_text, body_format, to, cc, bcc, attachments):
+        captured_call.update({
+            "subject": subject,
+            "body_text": body_text,
+            "body_format": body_format,
+            "to": to,
+            "cc": cc,
+            "bcc": bcc,
+            "attachments": attachments,
+        })
+        return {"operation": "draft", "created": True, "sent": False, "to": list(to), "cc": list(cc)}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "create_mail_draft", fake_create_mail_draft)
+
+    exit_code = cli.main([
+        "mail",
+        "draft",
+        "--subject",
+        "Hello",
+        "--body-file",
+        str(body),
+        "--body-format",
+        "markdown",
+        "--format",
+        "json",
+    ])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    payload = json.loads(captured.out)
+    assert payload["operation"] == "draft"
+    assert payload["sent"] is False
+    assert captured_call["subject"] == "Hello"
+    assert captured_call["body_text"] == "Hello draft"
+    assert captured_call["body_format"] == "markdown"
+    assert captured_call["to"] == ()
+    assert captured_call["cc"] == ()
+    assert captured_call["bcc"] == ()
+
+
+def test_mail_draft_cli_accepts_optional_recipients(monkeypatch, capsys, tmp_path):
+    body = tmp_path / "body.txt"
+    body.write_text("Hello draft", encoding="utf-8")
+    captured_call = {}
+
+    def fake_create_mail_draft(settings, *, subject, body_text, body_format, to, cc, bcc, attachments):
+        captured_call.update({"to": to, "cc": cc, "bcc": bcc})
+        return {"operation": "draft", "created": True, "sent": False}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "create_mail_draft", fake_create_mail_draft)
+
+    exit_code = cli.main([
+        "mail",
+        "draft",
+        "--to",
+        "to@example.com",
+        "--cc",
+        "cc@example.com",
+        "--bcc",
+        "bcc@example.com",
+        "--subject",
+        "Hello",
+        "--body-file",
+        str(body),
+        "--format",
+        "json",
+    ])
+
+    assert exit_code == 0
+    assert captured_call["to"] == ("to@example.com",)
+    assert captured_call["cc"] == ("cc@example.com",)
+    assert captured_call["bcc"] == ("bcc@example.com",)
+
+
 def test_mail_reply_all_cli_delegates_to_replier(monkeypatch, capsys, tmp_path):
     body = tmp_path / "body.md"
     body.write_text("Hello all", encoding="utf-8")

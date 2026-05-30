@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-05-29
+
+- Added `mail draft` for standalone Outlook draft creation via Microsoft Graph `POST /me/messages`. Recipients are optional by design, so agents can stage a no-recipient draft for human review without any send path.
+- Reused sender body-format conversion, recipient rendering, and small attachment payload construction for draft creation. Draft JSON returns `draft_id`, `web_link`, recipient summaries, attachment count, and `sent: false`.
+- Added library and CLI tests for no-recipient draft creation, optional recipients, Markdown body conversion, and CLI delegation.
+
 ### 2026-05-20
 
 - Added `mail reply-all` backed by Microsoft Graph `createReplyAll`, reusing the existing reply draft flow for body patching, recipient overrides, attachments, dry-run summaries, and final send.

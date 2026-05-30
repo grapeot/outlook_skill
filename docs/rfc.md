@@ -2,7 +2,7 @@
 
 ## Scope
 
-The system covers a deliberately narrow set of Microsoft Graph operations on personal Outlook.com accounts: OAuth2 authentication, mail folder listing, MIME download, local `.eml` + SQLite storage, `.eml` → Markdown rendering, standalone email sending, in-thread reply/reply-all, and calendar invite creation with event listing.
+The system covers a deliberately narrow set of Microsoft Graph operations on personal Outlook.com accounts: OAuth2 authentication, mail folder listing, MIME download, local `.eml` + SQLite storage, `.eml` → Markdown rendering, standalone email draft creation, standalone email sending, in-thread reply/reply-all, and calendar invite creation with event listing.
 
 This scope serves two goals. First, it gives AI workflows a stable, reusable entry point to a personal Outlook.com mailbox — the commands an agent needs to download, read, search, and optionally send email. Second, it draws a hard line at the skill layer: the system never grows into a full mail client or calendar application.
 
@@ -64,11 +64,13 @@ Reads from SQLite metadata + `.eml` files, applies optional filters (days, folde
 
 The YAML frontmatter includes `graph_id`, `folder`, `from`, `to`, `cc`, `subject`, `date`, and `body_source` — enough metadata for an AI agent to correlate the local file back to the Graph origin.
 
-### 8. `sender.py` — Standalone email sending
+### 8. `sender.py` — Standalone email drafting and sending
 
-Constructs a Graph `sendMail` payload with `message` (subject, body with contentType, toRecipients, ccRecipients, bccRecipients), inline attachments ≤3MB using `fileAttachment` with base64-encoded `contentBytes`, and `saveToSentItems` control. Body format conversion handles Markdown→HTML via `markdown.markdown()` when `body_format` is `markdown` or `md`.
+Constructs standalone message payloads for both `POST /me/messages` draft creation and `POST /me/sendMail` sending. Both paths share body format conversion, recipient rendering, and inline attachments ≤3MB using `fileAttachment` with base64-encoded `contentBytes`. Body format conversion handles Markdown→HTML via `markdown.markdown()` when `body_format` is `markdown` or `md`.
 
-Dry-run mode (`MailSendAllowFlags.send`) constructs the full payload, logs a summary to stderr, and returns without calling Graph.
+`mail draft` intentionally makes `--to`, `--cc`, and `--bcc` optional so an agent can stage a message safely in the Outlook Drafts folder before a human fills recipients or reviews the final wording. It calls Graph but never calls `/send`; the JSON result includes `draft_id`, `web_link`, recipient summaries, and `sent: false`.
+
+`mail send` requires at least one `--to` recipient and calls `sendMail` unless `--dry-run` is specified. Dry-run mode constructs the full payload, logs a summary to stderr, and returns without calling Graph.
 
 ### 9. `replier.py` — In-thread reply
 
@@ -153,7 +155,7 @@ When `--format json` is specified, the final result writes to stdout and progres
 
 ### Dry-run as default safety
 
-All write commands (`mail send`, `mail reply`, `mail reply-all`, `calendar invite`) support `--dry-run`. In dry-run mode, reply commands create and patch the Graph draft but do not send it; send and invite commands validate the payload without calling their Graph write endpoint. This is the safety default for AI agents that should inspect before executing.
+All send-like commands keep an explicit safety boundary. `mail draft` creates a server-side draft and never sends. `mail send`, `mail reply`, `mail reply-all`, and `calendar invite` support `--dry-run`. In dry-run mode, reply commands create and patch the Graph draft but do not send it; send and invite commands validate the payload without calling their Graph write endpoint. This is the safety default for AI agents that should inspect before executing.
 
 ### Write gating in tests
 
