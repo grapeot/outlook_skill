@@ -19,6 +19,14 @@ class FakeTransport(httpx.BaseTransport):
         self.requests.append((request.method, str(request.url), request.content))
         if request.method == "POST" and str(request.url).endswith("/me/sendMail"):
             return httpx.Response(202)
+        if request.method == "POST" and str(request.url).endswith("/me/messages"):
+            payload = json.loads(request.content)
+            return httpx.Response(201, json={
+                "id": "DRAFT_123",
+                "subject": payload.get("subject"),
+                "webLink": "https://outlook.live.com/draft/DRAFT_123",
+                "parentFolderId": "DRAFTS_FOLDER",
+            })
         return httpx.Response(404, json={"error": "unexpected"})
 
 
@@ -161,3 +169,54 @@ def test_send_mail_rejects_large_attachment(monkeypatch, tmp_path):
             body_text="Body",
             attachments=(attachment,),
         )
+
+
+def test_create_mail_draft_posts_to_me_messages_without_recipients(monkeypatch):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = sender.create_mail_draft(
+        settings(),
+        subject="Draft subject",
+        body_text="Draft body",
+    )
+
+    assert payload["operation"] == "draft"
+    assert payload["created"] is True
+    assert payload["sent"] is False
+    assert payload["draft_id"] == "DRAFT_123"
+    assert payload["to"] == []
+    assert payload["cc"] == []
+    assert transport.requests[0][0] == "POST"
+    assert transport.requests[0][1].endswith("/me/messages")
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload["subject"] == "Draft subject"
+    assert graph_payload["body"] == {"contentType": "Text", "content": "Draft body"}
+    assert graph_payload["toRecipients"] == []
+    assert graph_payload["ccRecipients"] == []
+    assert graph_payload["bccRecipients"] == []
+
+
+def test_create_mail_draft_accepts_recipients_and_markdown(monkeypatch):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    sender.create_mail_draft(
+        settings(),
+        to=("duck@example.com",),
+        cc=("cc@example.com",),
+        subject="Draft subject",
+        body_text="**bold**",
+        body_format="markdown",
+    )
+
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload["toRecipients"][0]["emailAddress"]["address"] == "duck@example.com"
+    assert graph_payload["ccRecipients"][0]["emailAddress"]["address"] == "cc@example.com"
+    assert graph_payload["body"]["contentType"] == "HTML"
+    assert "<strong>bold</strong>" in graph_payload["body"]["content"]
+
+
+def test_create_mail_draft_rejects_missing_subject():
+    with pytest.raises(OutlookSkillError):
+        sender.create_mail_draft(settings(), subject=" ", body_text="Body")

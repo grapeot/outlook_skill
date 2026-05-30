@@ -93,6 +93,77 @@ def send_mail(
     return {**result, "sent": True}
 
 
+def create_mail_draft(
+    settings: Settings,
+    *,
+    subject: str,
+    body_text: str,
+    body_format: str = "text",
+    to: tuple[str, ...] = (),
+    cc: tuple[str, ...] = (),
+    bcc: tuple[str, ...] = (),
+    attachments: tuple[Path, ...] = (),
+) -> dict[str, object]:
+    if not subject.strip():
+        raise OutlookSkillError("draft requires --subject.")
+    if body_format not in ("text", "html", "markdown", "md"):
+        raise OutlookSkillError(f"Unsupported body format: {body_format}")
+
+    for path in attachments:
+        if not path.exists():
+            raise OutlookSkillError(f"Attachment not found: {path}")
+        if path.stat().st_size > SMALL_ATTACHMENT_LIMIT:
+            raise OutlookSkillError("mail draft currently supports attachments up to 3 MB.")
+
+    content_type, content_value = _prepare_body(body_text, body_format)
+    attachment_payloads = [_small_attachment_payload(path) for path in attachments]
+    message: dict[str, object] = {
+        "subject": subject,
+        "body": {"contentType": content_type, "content": content_value},
+        "toRecipients": [_recipient(addr) for addr in to],
+        "ccRecipients": [_recipient(addr) for addr in cc],
+        "bccRecipients": [_recipient(addr) for addr in bcc],
+    }
+    if attachment_payloads:
+        message["attachments"] = attachment_payloads
+
+    token = AuthManager(settings).get_access_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    with httpx.Client(base_url=settings.graph_base_url, timeout=httpx.Timeout(120.0, connect=10.0), headers=headers) as client:
+        response = client.post("/me/messages", json=message)
+    if response.is_error:
+        raise GraphApiError(
+            f"Graph draft creation failed with status {response.status_code}",
+            status_code=response.status_code,
+            response_text=response.text,
+        )
+    draft = response.json()
+    return {
+        "operation": "draft",
+        "created": True,
+        "sent": False,
+        "draft_id": draft.get("id"),
+        "subject": draft.get("subject") or subject,
+        "to": list(to),
+        "cc": list(cc),
+        "bcc": list(bcc),
+        "attachment_count": len(attachment_payloads),
+        "attachments": [
+            {"name": path.name, "size": path.stat().st_size, "content_type": mimetypes.guess_type(path.name)[0] or "application/octet-stream"}
+            for path in attachments
+        ],
+        "body_content_type": content_type,
+        "body_chars": len(content_value),
+        "web_link": draft.get("webLink"),
+        "parent_folder_id": draft.get("parentFolderId"),
+        "note": "draft created but not sent",
+    }
+
+
 def _prepare_body(body_text: str, body_format: str) -> tuple[str, str]:
     if body_format in ("markdown", "md"):
         return "HTML", md_to_html(body_text, extensions=["extra", "sane_lists"])

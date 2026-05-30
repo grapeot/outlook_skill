@@ -19,7 +19,7 @@ from .errors import OutlookSkillError
 from .exporter import export_local_to_markdown
 from .markdown_renderer import render_maildir_to_markdown
 from .replier import reply_to_message
-from .sender import send_mail
+from .sender import create_mail_draft, send_mail
 from .spam_triage import add_rule, apply_rules, list_labels, list_rules
 
 
@@ -93,6 +93,16 @@ def build_parser() -> argparse.ArgumentParser:
     mail_send.add_argument("--no-save-to-sent-items", action="store_true")
     mail_send.add_argument("--dry-run", action="store_true", help="validate and render the payload but do not call Graph")
     mail_send.add_argument("--format", choices=("json", "text"), default="json")
+
+    mail_draft = mail_subparsers.add_parser("draft")
+    mail_draft.add_argument("--to", action="append", help="recipient email address (may repeat); optional for drafts")
+    mail_draft.add_argument("--cc", action="append", help="cc recipient email address (may repeat)")
+    mail_draft.add_argument("--bcc", action="append", help="bcc recipient email address (may repeat)")
+    mail_draft.add_argument("--subject", required=True)
+    mail_draft.add_argument("--body-file", dest="body_file", required=True, help="path to a file containing the email body")
+    mail_draft.add_argument("--body-format", choices=("text", "html", "markdown", "md"), default="text")
+    mail_draft.add_argument("--attach", action="append", help="path to attach; currently supports files up to 3 MB (may repeat)")
+    mail_draft.add_argument("--format", choices=("json", "text"), default="json")
 
     mail_render_markdown = mail_subparsers.add_parser("render-markdown")
     mail_render_markdown.add_argument("--input-dir")
@@ -250,6 +260,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                     attachments=attachments,
                     save_to_sent_items=not args.no_save_to_sent_items,
                     dry_run=args.dry_run,
+                )
+                emit_output(payload, args.format)
+                return 0
+            if args.mail_command == "draft":
+                attachments = tuple(Path(p) for p in (args.attach or ()))
+                body_path = Path(args.body_file)
+                if not body_path.exists():
+                    raise OutlookSkillError(f"--body-file not found: {body_path}")
+                body_text = body_path.read_text(encoding="utf-8")
+                payload = create_mail_draft(
+                    settings,
+                    subject=args.subject,
+                    body_text=body_text,
+                    body_format=args.body_format,
+                    to=tuple(args.to) if args.to else (),
+                    cc=tuple(args.cc) if args.cc else (),
+                    bcc=tuple(args.bcc) if args.bcc else (),
+                    attachments=attachments,
                 )
                 emit_output(payload, args.format)
                 return 0
