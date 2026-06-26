@@ -20,7 +20,11 @@ class FakeTransport(httpx.BaseTransport):
         self.requests.append((request.method, str(request.url), request.content))
         url = str(request.url)
         if request.method == "POST" and url.endswith(f"/{self.create_action}"):
-            return httpx.Response(201, json={"id": self.draft_id, "subject": "Re: Test"})
+            return httpx.Response(201, json={
+                "id": self.draft_id,
+                "subject": "Re: Test",
+                "body": {"contentType": "text", "content": "----- Original -----\nQuoted body"},
+            })
         if request.method == "PATCH" and f"/me/messages/{self.draft_id}" in url:
             return httpx.Response(200, json={"id": self.draft_id})
         if request.method == "POST" and url.endswith(f"/me/messages/{self.draft_id}/attachments"):
@@ -135,3 +139,30 @@ def test_prepare_body_text_passthrough():
     content_type, content = replier._prepare_body("plain", "text")
     assert content_type == "Text"
     assert content == "plain"
+
+
+def test_merge_body_preserves_quoted_content():
+    """When Graph returns a draft with quoted body, _merge_body prepends user content."""
+    merged, merged_type = replier._merge_body(
+        "My reply", "Text", "----- Original -----\nHi", "Text"
+    )
+    assert merged_type == "Text"
+    assert "My reply" in merged
+    assert "----- Original -----" in merged
+
+
+def test_merge_body_type_mismatch_text_user_html_quoted():
+    """User Text + Graph HTML quote → merged HTML."""
+    merged, merged_type = replier._merge_body(
+        "My reply", "Text", "<hr><p>Quoted</p>", "HTML"
+    )
+    assert merged_type == "HTML"
+    assert "My reply" in merged or "My reply" in merged  # text escaped to HTML
+    assert "<p>Quoted</p>" in merged
+
+
+def test_merge_body_no_quote():
+    """No quoted content → return user content as-is."""
+    merged, merged_type = replier._merge_body("My reply", "Text", "", "Text")
+    assert merged == "My reply"
+    assert merged_type == "Text"

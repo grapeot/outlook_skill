@@ -51,8 +51,18 @@ def reply_to_message(
         draft = _create_reply_draft(client, graph_id=graph_id, create_action=create_action)
         draft_id = cast(str, draft["id"])
 
+        existing_body = draft.get("body")
+        if isinstance(existing_body, dict):
+            quoted_content = existing_body.get("content", "")
+            quoted_type = existing_body.get("contentType", "text")
+        else:
+            quoted_content = ""
+            quoted_type = content_type
+
+        merged_content = _merge_body(content_value, content_type, quoted_content, quoted_type)
+
         patch_payload: dict[str, Any] = {
-            "body": {"contentType": content_type, "content": content_value},
+            "body": {"contentType": merged_content[1], "content": merged_content[0]},
         }
         if to_override:
             patch_payload["toRecipients"] = [_recipient(addr) for addr in to_override]
@@ -81,26 +91,26 @@ def reply_to_message(
                 "cc": cc_recipients,
                 "attachment_count": len(attachment_results),
                 "attachments": attachment_results,
-                "body_content_type": content_type,
-                "body_chars": len(content_value),
+                "body_content_type": patch_payload["body"]["contentType"],
+                "body_chars": len(patch_payload["body"]["content"]),
                 "note": "draft created but not sent",
             }
 
-        _post_empty(client, f"/me/messages/{draft_id}/send")
+            _post_empty(client, f"/me/messages/{draft_id}/send")
 
-        return {
-            "operation": operation,
-            "dry_run": False,
-            "draft_id": draft_id,
-            "subject": subject if isinstance(subject, str) else None,
-            "to": to_recipients,
-            "cc": cc_recipients,
-            "attachment_count": len(attachment_results),
-            "attachments": attachment_results,
-            "body_content_type": content_type,
-            "body_chars": len(content_value),
-            "sent": True,
-        }
+            return {
+                "operation": operation,
+                "dry_run": False,
+                "draft_id": draft_id,
+                "subject": subject if isinstance(subject, str) else None,
+                "to": to_recipients,
+                "cc": cc_recipients,
+                "attachment_count": len(attachment_results),
+                "attachments": attachment_results,
+                "body_content_type": patch_payload["body"]["contentType"],
+                "body_chars": len(patch_payload["body"]["content"]),
+                "sent": True,
+            }
 
 
 def _prepare_body(body_text: str, body_format: str) -> tuple[str, str]:
@@ -110,6 +120,41 @@ def _prepare_body(body_text: str, body_format: str) -> tuple[str, str]:
     if body_format == "html":
         return "HTML", body_text
     return "Text", body_text
+
+
+def _merge_body(
+    user_content: str,
+    user_type: str,
+    quoted_content: str,
+    quoted_type: str,
+) -> tuple[str, str]:
+    """Merge user content with Graph's auto-generated quoted body.
+
+    Returns (merged_content, merged_type).  When types differ, converts the
+    text side to HTML so both halves share one contentType.
+    """
+    if not quoted_content:
+        return user_content, user_type
+
+    if user_type == quoted_type:
+        return f"{user_content}\n{quoted_content}", user_type
+
+    # Type mismatch — normalise to HTML.
+    if user_type == "Text":
+        user_html = _text_to_html(user_content)
+        return f"{user_html}\n{quoted_content}", "HTML"
+
+    # user is HTML, quoted is Text
+    quoted_html = _text_to_html(quoted_content)
+    return f"{user_content}\n{quoted_html}", "HTML"
+
+
+def _text_to_html(text: str) -> str:
+    """Minimal text → HTML conversion preserving line breaks."""
+    import html as html_mod
+
+    escaped = html_mod.escape(text)
+    return escaped.replace("\n", "<br>\n")
 
 
 def _create_reply_draft(client: httpx.Client, *, graph_id: str, create_action: str) -> dict[str, Any]:
