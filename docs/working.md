@@ -2,6 +2,10 @@
 
 ## Changelog
 
+### 2026-06-26
+
+- Updated skill doc: default reply mode is now `reply-all` when a user says "reply" or "回信" without specifying. Plain `reply` (sender only) requires explicit user request.
+
 ### 2026-05-29
 
 - Added `mail draft` for standalone Outlook draft creation via Microsoft Graph `POST /me/messages`. Recipients are optional by design, so agents can stage a no-recipient draft for human review without any send path.

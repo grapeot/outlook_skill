@@ -71,6 +71,8 @@ Creates a standalone draft via `POST /me/messages`. Requires `Mail.ReadWrite` sc
 
 Replies in-thread via Graph draft flow. `mail reply` uses `createReply`; `mail reply-all` uses `createReplyAll`. Both require `Mail.ReadWrite` + `Mail.Send`. Attachments ≤3 MB use inline `fileAttachment`; larger files use upload session. `--to` / `--cc` override the draft recipients after Graph creates the draft. `--dry-run` creates the draft without sending. JSON output includes `operation: reply` or `operation: reply_all`.
 
+**Default reply mode:** When a user asks to "reply" or "回信" without specifying, use `mail reply-all` to preserve all original recipients. Use `mail reply` (reply to sender only) only when the user explicitly requests it.
+
 ### `calendar invite`
 
 Creates a calendar event via `POST /me/calendar/events`. Requires `Calendars.ReadWrite`. By default it creates an attendee-less appointment; pass `--to` or `--optional-attendee` only when someone should be invited. Supports location and body. `--dry-run` validates the payload without calling Graph.
@@ -127,8 +129,7 @@ The standard pipeline:
 | Layer | Path |
 |---|---|
 | Raw MIME | `data/mail/messages/*.eml` |
-| Markdown (parallel render) | `data/mail/markdowns/*.md` |
-| Markdown (YAML frontmatter) | `data/mail/markdown/*.md` |
+| Markdown (canonical YAML frontmatter) | `data/mail/markdown/*.md` |
 | SQLite | `data/mail/mail.db` |
 | Token cache | `data/mail/oauth_token_cache.json` |
 
@@ -145,4 +146,4 @@ The standard pipeline:
 2. `auth status` reports `auth_ready=true`
 3. `mail download` returns valid JSON and writes `.eml` files
 4. Re-running on the same folder/time window increases `skipped_existing_count` rather than duplicating writes
-5. `mail render-markdown` writes `.md` files with clean stdout in JSON mode
+5. `mail export-md` writes canonical `.md` files with clean stdout in JSON mode
