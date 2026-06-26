@@ -76,6 +76,8 @@ Constructs standalone message payloads for both `POST /me/messages` draft creati
 
 Uses Graph's `createReply` or `createReplyAll` endpoint to build a reply draft from the parent message, then patches the body, attaches files, and sends. Attachments ≤3MB use inline `fileAttachment`; larger attachments use `createUploadSession` for chunked upload. Recipient overrides (`--to`, `--cc`) modify the draft's recipient list before sending.
 
+Graph's `createReply`/`createReplyAll` returns a draft with the original message body as a quoted thread below the reply area. The replier preserves this quoted content: it reads the draft body from the create response, prepends the user's content to the existing quote, and patches the merged body back. When the user content and quoted content have different content types (e.g., user sends Text but Graph returns HTML), the text side is converted to HTML so both halves share one contentType.
+
 ### 10. `calendar.py` — Calendar operations
 
 Two operations on a single endpoint. `create_calendar_invite()` posts to `/me/calendar/events` with `subject`, `start`/`end` (with timeZone), `location`, `body` (with contentType), and `attendees` (required + optional). `list_calendar_events()` queries `/me/calendar/events` with `$filter=start/dateTime ge {start}` (using the complex type path syntax), `$orderby=start/dateTime`, `$select` for relevant fields, and `$top=100` as a safety ceiling. Client-side filtering removes daily/weekly recurring events when `--skip-recurring` is specified.

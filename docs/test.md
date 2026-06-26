@@ -18,7 +18,7 @@ Unit tests cover pure logic with no network dependency:
 - SQLite idempotent writes
 - CLI argument parsing and downstream service call parameters
 - `mail send`: Graph `/me/sendMail` payload construction, body format handling, recipient fields, attachment encoding, and dry-run behavior
-- `mail reply` / `mail reply-all`: Graph `createReply` vs. `createReplyAll` endpoint selection, draft patching, attachment upload, operation output, and dry-run no-send behavior
+- `mail reply` / `mail reply-all`: Graph `createReply` vs. `createReplyAll` endpoint selection, draft patching, quoted body preservation, attachment upload, operation output, and dry-run no-send behavior
 - `calendar invite`: Graph `/me/calendar/events` payload construction, required vs. optional attendees, time validation, and dry-run behavior
 - `calendar list`: Graph `/me/calendar/events` query parameter construction, time range filtering, daily/weekly recurring event filtering, response parsing, and pagination
 
@@ -29,7 +29,7 @@ Mocked integration tests verify the seams between library and CLI using fake aut
 - `doctor config` correctly reports missing client ID and token cache state
 - `auth status` correctly reflects cache readiness
 - `mail download` produces a clear error when not authenticated
-- `mail render-markdown` writes `.md` files and keeps JSON stdout clean
+- `mail export-md` writes canonical `.md` files and keeps JSON stdout clean
 - `mail list-local` outputs a stable JSON structure
 - `mail send --dry-run` does not call Graph and outputs stable JSON
 - `mail reply-all --dry-run` creates a Graph reply-all draft and does not send it
@@ -44,7 +44,7 @@ Live integration tests exercise the full OAuth2 → Graph → local disk pipelin
 - Graph lists and downloads Outlook.com messages
 - MIME `/$value` endpoint returns valid RFC 822 content
 - `.eml` files and SQLite records are written to disk
-- Real `.eml` files are batch-rendered to `.md`
+- Real `.eml` files are exported to canonical `.md`
 - With `OUTLOOK_LIVE_ALLOW_SEND=1`, a test email is sent to self and observed in recent messages
 - With `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1`, a future calendar invite is created for self
 - `calendar list` reads events from the default calendar, confirms stable output structure, and correctly distinguishes recurring events
@@ -79,7 +79,7 @@ After significant changes, run at minimum:
 .venv/bin/python -m outlook_skill.cli doctor config
 .venv/bin/python -m outlook_skill.cli auth status --format json
 .venv/bin/python -m outlook_skill.cli mail list-local --limit 20 --format json
-.venv/bin/python -m outlook_skill.cli mail render-markdown --input-dir data/mail/messages --output-dir data/mail/markdowns --limit 20 --format json
+.venv/bin/python -m outlook_skill.cli mail export-md --days 7 --format json
 .venv/bin/python -m outlook_skill.cli mail send --to your_account@outlook.com --subject "Dry run" --body-file body.md --dry-run --format json
 .venv/bin/python -m outlook_skill.cli mail reply-all --graph-id <message_id> --body-file body.md --dry-run --format json
 .venv/bin/python -m outlook_skill.cli calendar invite --to your_account@outlook.com --subject "Dry run" --start 2026-05-06T10:00:00 --end 2026-05-06T10:30:00 --dry-run --format json

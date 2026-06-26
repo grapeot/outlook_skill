@@ -71,6 +71,8 @@ Creates a standalone draft via `POST /me/messages`. Requires `Mail.ReadWrite` sc
 
 Replies in-thread via Graph draft flow. `mail reply` uses `createReply`; `mail reply-all` uses `createReplyAll`. Both require `Mail.ReadWrite` + `Mail.Send`. Attachments ≤3 MB use inline `fileAttachment`; larger files use upload session. `--to` / `--cc` override the draft recipients after Graph creates the draft. `--dry-run` creates the draft without sending. JSON output includes `operation: reply` or `operation: reply_all`.
 
+Graph's `createReply`/`createReplyAll` automatically includes the original message as a quoted thread in the draft body. The replier preserves this quoted content and prepends the user's reply above it. When content types differ (user sends Text, Graph returns HTML), the text side is converted to HTML for consistency.
+
 **Default reply mode:** When a user asks to "reply" or "回信" without specifying, use `mail reply-all` to preserve all original recipients. Use `mail reply` (reply to sender only) only when the user explicitly requests it.
 
 ### `calendar invite`
