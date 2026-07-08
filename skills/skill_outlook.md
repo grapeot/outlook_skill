@@ -39,6 +39,8 @@ All commands run from the project root.
 
 .venv/bin/python -m outlook_skill.cli calendar invite [--to <addr>]... --subject <subject> --start <YYYY-MM-DDTHH:MM:SS> --end <YYYY-MM-DDTHH:MM:SS> [--timezone UTC] [--optional-attendee <addr>]... [--location <text>] [--body-file <path>] [--dry-run]
 .venv/bin/python -m outlook_skill.cli calendar list [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--skip-recurring daily,weekly] --format json
+.venv/bin/python -m outlook_skill.cli calendar get --event-id <graph-event-id> --format json
+.venv/bin/python -m outlook_skill.cli calendar delete --event-id <graph-event-id> [--dry-run] --format json
 ```
 
 A convenience wrapper is also available:
@@ -82,6 +84,14 @@ Creates a calendar event via `POST /me/calendar/events`. Requires `Calendars.Rea
 ### `calendar list`
 
 Reads upcoming events from the default calendar via `GET /me/calendar/events`. Default: today to today+60 days. `--skip-recurring daily,weekly` (default) filters out daily and weekly recurring events; `all` filters all recurring; `none` shows everything.
+
+### `calendar get`
+
+Fetches one default-calendar event via `GET /me/calendar/events/{id}` and returns the raw Graph event payload. Use this before destructive changes when body, attendees, or timezone details matter.
+
+### `calendar delete`
+
+Deletes one default-calendar event via `DELETE /me/calendar/events/{id}`. It first fetches the full event and returns it as `deleted_event` for auditability. Use `calendar list --format json` first and pass the returned `event_id`; do not delete by subject alone.
 
 ## AI workflow
 

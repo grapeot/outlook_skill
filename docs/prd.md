@@ -19,7 +19,7 @@ The system provides ten capabilities, each with a clear module boundary:
 7. **Mail export** (`exporter.py`): YAML frontmatter Markdown export from local SQLite + `.eml`, with folder/subject/date filtering and slug-based filenames
 8. **Standalone send** (`sender.py`): `POST /me/sendMail` with body-format conversion (Markdown→HTML), inline attachments ≤3MB, `saveToSentItems` toggle, dry-run mode
 9. **In-thread reply** (`replier.py`): `createReply` / `createReplyAll` draft flow, attachment upload (inline for ≤3MB, upload session for larger), recipient override, dry-run that creates draft without sending
-10. **Calendar** (`calendar.py`): `POST /me/calendar/events` for creating invites with required/optional attendees, `GET /me/calendar/events` for listing events with recurring-event filtering
+10. **Calendar** (`calendar.py`): `POST /me/calendar/events` for creating invites with required/optional attendees, `GET /me/calendar/events` for listing events with recurring-event filtering, `GET /me/calendar/events/{id}` for full-event inspection, and `DELETE /me/calendar/events/{id}` for auditable single-event deletion
 
 A rule-based triage system (`spam_triage.py`) overlays the local message store with deterministic sender/subject/body matching, multi-label classification, and persistent labeling. Current rules (`spam` + `low_value`) cover approximately 29% of a 38,000-message corpus through three rounds of iterative refinement.
 
@@ -73,7 +73,7 @@ The default download targets are `Inbox` and `Archive`. For most Outlook.com use
 - Run as a background sync daemon or webhook receiver
 - Manage multiple accounts or users
 - Pass through arbitrary Graph API calls
-- Full calendar synchronization, event updates, deletions, or RSVP management
+- Full calendar synchronization, event updates, bulk deletions, or RSVP management
 - Mailbox settings management
 
 ## Module map
@@ -89,7 +89,7 @@ src/outlook_skill/
 ├── exporter.py       — YAML frontmatter export, filtering, slugified filenames
 ├── sender.py         — standalone sendMail, body-format conversion, dry-run
 ├── replier.py        — createReply/createReplyAll draft flow, attachment upload, recipient override
-├── calendar.py       — invite creation, event listing, recurring filtering
+├── calendar.py       — invite creation, event listing/get/delete, recurring filtering
 ├── spam_triage.py    — rule-based labeling, multi-label classification
 ├── mail.py           — (thin) local read and list via store + downloader
 ├── models.py         — dataclasses: DownloadedMessage, SpamRule, TriageLabel

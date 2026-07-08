@@ -2,7 +2,7 @@
 
 ## Scope
 
-The system covers a deliberately narrow set of Microsoft Graph operations on personal Outlook.com accounts: OAuth2 authentication, mail folder listing, MIME download, local `.eml` + SQLite storage, `.eml` → Markdown rendering, standalone email draft creation, standalone email sending, in-thread reply/reply-all, and calendar invite creation with event listing.
+The system covers a deliberately narrow set of Microsoft Graph operations on personal Outlook.com accounts: OAuth2 authentication, mail folder listing, MIME download, local `.eml` + SQLite storage, `.eml` → Markdown rendering, standalone email draft creation, standalone email sending, in-thread reply/reply-all, and small calendar operations: invite creation, event listing, full-event fetch, and single-event deletion.
 
 This scope serves two goals. First, it gives AI workflows a stable, reusable entry point to a personal Outlook.com mailbox — the commands an agent needs to download, read, search, and optionally send email. Second, it draws a hard line at the skill layer: the system never grows into a full mail client or calendar application.
 
@@ -80,7 +80,7 @@ Graph's `createReply`/`createReplyAll` returns a draft with the original message
 
 ### 10. `calendar.py` — Calendar operations
 
-Two operations on a single endpoint. `create_calendar_invite()` posts to `/me/calendar/events` with `subject`, `start`/`end` (with timeZone), `location`, `body` (with contentType), and `attendees` (required + optional). `list_calendar_events()` queries `/me/calendar/events` with `$filter=start/dateTime ge {start}` (using the complex type path syntax), `$orderby=start/dateTime`, `$select` for relevant fields, and `$top=100` as a safety ceiling. Client-side filtering removes daily/weekly recurring events when `--skip-recurring` is specified.
+Small operations on the default calendar endpoint. `create_calendar_invite()` posts to `/me/calendar/events` with `subject`, `start`/`end` (with timeZone), `location`, `body` (with contentType), and `attendees` (required + optional). `list_calendar_events()` queries `/me/calendar/events` with `$filter=start/dateTime ge {start}` (using the complex type path syntax), `$orderby=start/dateTime`, `$select` for relevant fields including `id`, and `$top=100` as a safety ceiling. Client-side filtering removes daily/weekly recurring events when `--skip-recurring` is specified. `get_calendar_event()` fetches one raw Graph event by id. `delete_calendar_event()` first fetches that raw event, then deletes it, and returns the fetched payload as `deleted_event` so an accidental deletion can be reconstructed from command output.
 
 ### 11. `cli.py` — Thin CLI shell
 
@@ -157,7 +157,7 @@ When `--format json` is specified, the final result writes to stdout and progres
 
 ### Dry-run as default safety
 
-All send-like commands keep an explicit safety boundary. `mail draft` creates a server-side draft and never sends. `mail send`, `mail reply`, `mail reply-all`, and `calendar invite` support `--dry-run`. In dry-run mode, reply commands create and patch the Graph draft but do not send it; send and invite commands validate the payload without calling their Graph write endpoint. This is the safety default for AI agents that should inspect before executing.
+All send-like commands keep an explicit safety boundary. `mail draft` creates a server-side draft and never sends. `mail send`, `mail reply`, `mail reply-all`, `calendar invite`, and `calendar delete` support `--dry-run`. In dry-run mode, reply commands create and patch the Graph draft but do not send it; send, invite, and delete commands validate the payload without calling their Graph write endpoint. `calendar delete` additionally returns the full event payload on real deletion for auditability. This is the safety default for AI agents that should inspect before executing.
 
 ### Write gating in tests
 
@@ -186,4 +186,4 @@ Capabilities explicitly excluded from current scope, with rationale:
 - **Server-side message state modification** (read/unread, move, delete): introduces risk of unintended state changes when used by AI agents; the read-only default is a safety property
 - **Background sync daemon**: adds process lifecycle management, scheduling, and failure recovery that belong in infrastructure outside this library
 - **Multi-account management**: each instance serves one account; multi-account orchestration belongs in the calling infrastructure
-- **Calendar full sync, event update, delete, RSVP**: each of these involves state management and notification semantics that differ from the current read + create model
+- **Calendar full sync, event update, bulk delete, RSVP**: each of these involves state management and notification semantics that differ from the current single-event read/create/delete model

@@ -12,7 +12,7 @@ from typing import Any, cast
 from tqdm import tqdm
 
 from .auth import AuthManager
-from .calendar import create_calendar_invite, list_calendar_events
+from .calendar import create_calendar_invite, delete_calendar_event, get_calendar_event, list_calendar_events
 from .config import doctor_info, load_settings
 from .downloader import download_recent_mail, list_local_mail, read_local_mail
 from .errors import OutlookSkillError
@@ -134,6 +134,15 @@ def build_parser() -> argparse.ArgumentParser:
     calendar_list.add_argument("--skip-recurring", default="daily,weekly",
                               help="comma-separated recurrence types to skip, 'all' or 'none'. Default: daily,weekly")
     calendar_list.add_argument("--format", choices=("json", "text"), default="json")
+
+    calendar_get = calendar_subparsers.add_parser("get")
+    calendar_get.add_argument("--event-id", required=True, help="Graph calendar event id to fetch")
+    calendar_get.add_argument("--format", choices=("json", "text"), default="json")
+
+    calendar_delete = calendar_subparsers.add_parser("delete")
+    calendar_delete.add_argument("--event-id", required=True, help="Graph calendar event id to delete")
+    calendar_delete.add_argument("--dry-run", action="store_true", help="validate the request but do not call Graph")
+    calendar_delete.add_argument("--format", choices=("json", "text"), default="json")
 
     triage_parser = subparsers.add_parser("triage")
     triage_subparsers = triage_parser.add_subparsers(dest="triage_command", required=True)
@@ -326,6 +335,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                     start_date=start,
                     end_date=end,
                     skip_recurring=args.skip_recurring,
+                )
+                emit_output(payload, args.format)
+                return 0
+            if args.calendar_command == "get":
+                payload = get_calendar_event(
+                    settings,
+                    event_id=args.event_id,
+                )
+                emit_output(payload, args.format)
+                return 0
+            if args.calendar_command == "delete":
+                payload = delete_calendar_event(
+                    settings,
+                    event_id=args.event_id,
+                    dry_run=args.dry_run,
                 )
                 emit_output(payload, args.format)
                 return 0
