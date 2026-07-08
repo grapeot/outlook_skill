@@ -559,3 +559,54 @@ def test_calendar_list_cli_delegates_to_calendar(monkeypatch, capsys):
     assert captured_call["start_date"] == "2026-05-08"
     assert captured_call["end_date"] == "2026-07-08"
     assert captured_call["skip_recurring"] == "daily,weekly"
+
+
+def test_calendar_get_cli_delegates_to_calendar(monkeypatch, capsys):
+    captured_call = {}
+
+    def fake_get_calendar_event(settings, *, event_id):
+        captured_call["event_id"] = event_id
+        return {"event_id": event_id, "event": {"subject": "Meeting"}}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "get_calendar_event", fake_get_calendar_event)
+
+    exit_code = cli.main([
+        "calendar",
+        "get",
+        "--event-id",
+        "EVT_123",
+        "--format",
+        "json",
+    ])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert json.loads(captured.out)["event"]["subject"] == "Meeting"
+    assert captured_call["event_id"] == "EVT_123"
+
+
+def test_calendar_delete_cli_delegates_to_calendar(monkeypatch, capsys):
+    captured_call = {}
+
+    def fake_delete_calendar_event(settings, *, event_id, dry_run):
+        captured_call.update({"event_id": event_id, "dry_run": dry_run})
+        return {"event_id": event_id, "deleted": False, "dry_run": dry_run}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "delete_calendar_event", fake_delete_calendar_event)
+
+    exit_code = cli.main([
+        "calendar",
+        "delete",
+        "--event-id",
+        "EVT_123",
+        "--dry-run",
+        "--format",
+        "json",
+    ])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert json.loads(captured.out)["dry_run"] is True
+    assert captured_call == {"event_id": "EVT_123", "dry_run": True}

@@ -264,6 +264,8 @@ def test_list_calendar_events_default_skips_daily_weekly(monkeypatch):
     assert result["total_count"] == 5
     assert result["shown_count"] == 3
     assert result["skipped_recurring"] == 2
+    first = cast(list[dict[str, Any]], result["events"])[0]
+    assert first["event_id"] == "EVT_001"
 
 
 def test_list_calendar_events_skip_recurring_all(monkeypatch):
@@ -356,3 +358,55 @@ def test_list_calendar_events_handles_custom_recurring_types(monkeypatch):
     assert "Monthly review" not in subjects
     assert result["shown_count"] == 2
     assert result["skipped_recurring"] == 3
+
+
+class FakeEventDetailTransport(httpx.BaseTransport):
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str, Any]] = []
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append((request.method, str(request.url), request.content))
+        if request.method == "GET" and str(request.url).endswith("/me/calendar/events/EVT_123"):
+            return httpx.Response(200, json={
+                "id": "EVT_123",
+                "subject": "Placeholder",
+                "body": {"contentType": "html", "content": "<p>full body</p>"},
+                "attendees": [],
+            })
+        if request.method == "DELETE" and str(request.url).endswith("/me/calendar/events/EVT_123"):
+            return httpx.Response(204)
+        return httpx.Response(404, json={"error": "unexpected"})
+
+
+def test_get_calendar_event_returns_raw_event(monkeypatch):
+    transport = FakeEventDetailTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.get_calendar_event(settings(), event_id="EVT_123")
+
+    assert result["event_id"] == "EVT_123"
+    assert cast(dict[str, Any], result["event"])["subject"] == "Placeholder"
+    assert transport.requests == [("GET", "https://example.test/v1.0/me/calendar/events/EVT_123", b"")]
+
+
+def test_delete_calendar_event_fetches_full_event_before_delete(monkeypatch):
+    transport = FakeEventDetailTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.delete_calendar_event(settings(), event_id="EVT_123")
+
+    assert result["deleted"] is True
+    deleted_event = cast(dict[str, Any], result["deleted_event"])
+    assert deleted_event["id"] == "EVT_123"
+    assert deleted_event["body"] == {"contentType": "html", "content": "<p>full body</p>"}
+    assert [request[0] for request in transport.requests] == ["GET", "DELETE"]
+
+
+def test_delete_calendar_event_dry_run_does_not_call_graph(monkeypatch):
+    transport = FakeEventDetailTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.delete_calendar_event(settings(), event_id="EVT_123", dry_run=True)
+
+    assert result["deleted"] is False
+    assert transport.requests == []

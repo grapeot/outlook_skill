@@ -137,7 +137,7 @@ def list_calendar_events(
     params: dict[str, str | int] = {
         "$filter": f"start/dateTime ge '{start_dt}' and start/dateTime le '{end_dt}'",
         "$orderby": "start/dateTime",
-        "$select": "subject,start,end,recurrence,importance,isAllDay,showAs,location,webLink",
+        "$select": "id,subject,start,end,recurrence,importance,isAllDay,showAs,location,webLink",
         "$top": 100,
     }
 
@@ -199,6 +199,7 @@ def list_calendar_events(
             loc_name = str(loc_data.get("displayName", ""))
 
         filtered_events.append({
+            "event_id": str(raw.get("id", "")),
             "subject": str(raw.get("subject", "")),
             "start": start_dt_str,
             "end": end_dt_str,
@@ -228,3 +229,73 @@ def _extract_recurrence_type(recurrence: dict[str, object]) -> str | None:
         if isinstance(rec_type, str):
             return rec_type
     return None
+
+
+def delete_calendar_event(
+    settings: Settings,
+    *,
+    event_id: str,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    if not event_id.strip():
+        raise OutlookSkillError("calendar delete requires --event-id.")
+
+    result = {
+        "dry_run": dry_run,
+        "endpoint": f"/me/calendar/events/{event_id}",
+        "event_id": event_id,
+    }
+    if dry_run:
+        return {**result, "deleted": False, "note": "dry run; Graph DELETE was not called"}
+
+    token = AuthManager(settings).get_access_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+    with httpx.Client(base_url=settings.graph_base_url, timeout=httpx.Timeout(120.0, connect=10.0), headers=headers) as client:
+        get_response = client.get(f"/me/calendar/events/{event_id}")
+        if get_response.is_error:
+            raise GraphApiError(
+                f"Graph calendar event fetch before deletion failed with status {get_response.status_code}",
+                status_code=get_response.status_code,
+                response_text=get_response.text,
+            )
+        deleted_event = cast(dict[str, object], get_response.json() if get_response.content else {})
+        response = client.delete(f"/me/calendar/events/{event_id}")
+    if response.is_error:
+        raise GraphApiError(
+            f"Graph calendar event deletion failed with status {response.status_code}",
+            status_code=response.status_code,
+            response_text=response.text,
+        )
+    return {**result, "deleted": True, "deleted_event": deleted_event}
+
+
+def get_calendar_event(
+    settings: Settings,
+    *,
+    event_id: str,
+) -> dict[str, object]:
+    if not event_id.strip():
+        raise OutlookSkillError("calendar get requires --event-id.")
+
+    token = AuthManager(settings).get_access_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+    with httpx.Client(base_url=settings.graph_base_url, timeout=httpx.Timeout(120.0, connect=10.0), headers=headers) as client:
+        response = client.get(f"/me/calendar/events/{event_id}")
+    if response.is_error:
+        raise GraphApiError(
+            f"Graph calendar event fetch failed with status {response.status_code}",
+            status_code=response.status_code,
+            response_text=response.text,
+        )
+    event = cast(dict[str, object], response.json() if response.content else {})
+    return {
+        "endpoint": f"/me/calendar/events/{event_id}",
+        "event_id": event_id,
+        "event": event,
+    }

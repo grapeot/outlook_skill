@@ -4,7 +4,7 @@ from typing import cast
 
 import pytest
 
-from outlook_skill.calendar import create_calendar_invite, list_calendar_events
+from outlook_skill.calendar import create_calendar_invite, get_calendar_event, list_calendar_events
 from outlook_skill.config import load_settings
 from outlook_skill.downloader import download_recent_mail
 from outlook_skill.sender import send_mail
@@ -93,6 +93,12 @@ def test_live_calendar_list():
     assert payload["end_date"] == end_date
     assert payload["total_count"] >= payload["shown_count"]
     for event in payload["events"]:
+        assert "event_id" in event
         recurrence = event.get("recurrence_type")
         if recurrence:
             assert recurrence not in ("daily", "weekly")
+    if payload["events"]:
+        event_id = cast(str, payload["events"][0]["event_id"])
+        detail = get_calendar_event(settings, event_id=event_id)
+        assert detail["event_id"] == event_id
+        assert "event" in detail
