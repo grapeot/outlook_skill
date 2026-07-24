@@ -6,6 +6,7 @@
 
 - Updated skill doc: default reply mode is now `reply-all` when a user says "reply" or "回信" without specifying. Plain `reply` (sender only) requires explicit user request.
 - Fixed replier to preserve Graph's auto-generated quoted body in reply drafts. Previously, the PATCH body operation overwrote the entire draft body, destroying the quoted thread that `createReply`/`createReplyAll` includes. Now reads the draft body from the create response, merges user content with the existing quote, and patches the merged result. Handles type mismatch (Text vs HTML) by converting the text side to HTML.
+- Fixed quoted HTML preservation when Graph returns lowercase `contentType: "html"`. Content-type comparison is now case-insensitive, preventing existing quoted HTML from being escaped and displayed as source markup.
 
 ### 2026-05-29
 
