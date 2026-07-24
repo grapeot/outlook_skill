@@ -136,11 +136,14 @@ def _merge_body(
     if not quoted_content:
         return user_content, user_type
 
-    if user_type == quoted_type:
-        return f"{user_content}\n{quoted_content}", user_type
+    user_kind = user_type.lower()
+    quoted_kind = quoted_type.lower()
+    if user_kind == quoted_kind:
+        merged_type = "HTML" if user_kind == "html" else "Text"
+        return f"{user_content}\n{quoted_content}", merged_type
 
     # Type mismatch — normalise to HTML.
-    if user_type == "Text":
+    if user_kind == "text":
         user_html = _text_to_html(user_content)
         return f"{user_html}\n{quoted_content}", "HTML"
 

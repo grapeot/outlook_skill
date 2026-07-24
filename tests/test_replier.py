@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, cast
 
 import httpx
@@ -11,10 +12,18 @@ from outlook_skill.errors import OutlookSkillError
 
 
 class FakeTransport(httpx.BaseTransport):
-    def __init__(self, create_action: str = "createReply") -> None:
+    def __init__(
+        self,
+        create_action: str = "createReply",
+        *,
+        quoted_content_type: str = "text",
+        quoted_content: str = "----- Original -----\nQuoted body",
+    ) -> None:
         self.requests: list[tuple[str, str, Any]] = []
         self.draft_id: str = "DRAFT_123"
         self.create_action: str = create_action
+        self.quoted_content_type = quoted_content_type
+        self.quoted_content = quoted_content
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         self.requests.append((request.method, str(request.url), request.content))
@@ -23,7 +32,7 @@ class FakeTransport(httpx.BaseTransport):
             return httpx.Response(201, json={
                 "id": self.draft_id,
                 "subject": "Re: Test",
-                "body": {"contentType": "text", "content": "----- Original -----\nQuoted body"},
+                "body": {"contentType": self.quoted_content_type, "content": self.quoted_content},
             })
         if request.method == "PATCH" and f"/me/messages/{self.draft_id}" in url:
             return httpx.Response(200, json={"id": self.draft_id})
@@ -109,6 +118,34 @@ def test_reply_all_dry_run_uses_create_reply_all_and_does_not_send(monkeypatch):
     assert not any(url.endswith("/send") for _, url, _ in transport.requests)
 
 
+def test_reply_all_preserves_lowercase_graph_html_without_escaping(monkeypatch):
+    quoted_html = '<div class="quoted"><table><tr><td>Original</td></tr></table></div>'
+    transport = FakeTransport(
+        create_action="createReplyAll",
+        quoted_content_type="html",
+        quoted_content=quoted_html,
+    )
+    install_fake_graph(monkeypatch, transport)
+
+    payload = replier.reply_to_message(
+        settings(),
+        graph_id="ORIG_ID",
+        body_text="**Reply**",
+        body_format="markdown",
+        dry_run=True,
+        reply_all=True,
+    )
+
+    patch_content = next(content for method, url, content in transport.requests if method == "PATCH" and "/me/messages/" in url)
+    patch_payload = json.loads(patch_content)
+    merged_body = patch_payload["body"]
+    assert payload["body_content_type"] == "HTML"
+    assert merged_body["contentType"] == "HTML"
+    assert "<strong>Reply</strong>" in merged_body["content"]
+    assert quoted_html in merged_body["content"]
+    assert "&lt;table&gt;" not in merged_body["content"]
+
+
 def test_reply_rejects_missing_graph_id():
     with pytest.raises(OutlookSkillError):
         replier.reply_to_message(settings(), graph_id="", body_text="hi")
@@ -159,6 +196,15 @@ def test_merge_body_type_mismatch_text_user_html_quoted():
     assert merged_type == "HTML"
     assert "My reply" in merged or "My reply" in merged  # text escaped to HTML
     assert "<p>Quoted</p>" in merged
+
+
+def test_merge_body_treats_content_type_case_insensitively():
+    merged, merged_type = replier._merge_body(
+        "<p>My reply</p>", "HTML", "<div><table>Quoted</table></div>", "html"
+    )
+    assert merged_type == "HTML"
+    assert "<div><table>Quoted</table></div>" in merged
+    assert "&lt;table&gt;" not in merged
 
 
 def test_merge_body_no_quote():
