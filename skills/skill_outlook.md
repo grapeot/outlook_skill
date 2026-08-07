@@ -151,6 +151,7 @@ The standard pipeline:
 - Progress bars write to stderr in JSON mode; stdout contains only the valid JSON result.
 - The system does not extract attachment content, sync folder state, or modify server-side message flags.
 - Markdown rendering optimizes for AI consumption, not human readability. It strips quotes, tracking infrastructure, and layout tables.
+- **`mail list-local` returns rows ordered by `id` (insertion order), NOT by `received_at` or `internaldate` descending.** When the local SQLite database has accumulated tens of thousands of rows from prior downloads, `list-local --limit 50` returns the *oldest* 50 messages, not the most recent. To find recent mail after a `mail download` run, either (a) filter by date directly in SQLite using the `internaldate` column (ISO-8601, sortable), or (b) use `mail read --subject <substring> --latest` which queries SQLite and respects recency. Do not assume `list-local` shows the latest downloaded messages.
 
 ## Acceptance criteria
 
