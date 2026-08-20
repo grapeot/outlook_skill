@@ -2,6 +2,11 @@
 
 ## Changelog
 
+### 2026-08-20
+
+- Fixed critical bug in `replier.py`: the real-send branch (`POST /me/messages/{id}/send`) was dead code — indented inside the `if dry_run:` block after the early return. Non-dry-run `mail reply`/`reply-all` runs created and patched a draft but never sent it, silently returning `None` (CLI printed `null`). Discovered during a real send; fixed indentation so non-dry-run calls send and return `sent: true`. Existing tests only covered the dry-run path, which is why the bug survived.
+- Lesson added below on send-path test coverage.
+
 ### 2026-06-26
 
 - Updated skill doc: default reply mode is now `reply-all` when a user says "reply" or "回信" without specifying. Plain `reply` (sender only) requires explicit user request.
@@ -75,3 +80,4 @@
 - First-round sample review identified table layouts, tracking URLs, zero-width characters, footer disclaimers, and HTML-only marketing emails as the primary sources of Markdown rendering noise.
 - Second-round review confirmed that noise filtering had significantly improved. Remaining issues centered on marketing email card/table structure preservation, further tracking URL compression, and inline image placeholder quality.
 - Rule-based triage converges quickly in early rounds but hits diminishing returns as the problem shifts from obvious spam to gray-zone low-value notifications. Multi-label classification (not binary spam/not-spam) is the right model for this transition.
+- A write-path bug survived the full test suite because every test exercised the dry-run branch. Any command with a `--dry-run` gate needs at least one mocked test that follows the non-dry-run path end to end and asserts the real send/delete call happens; otherwise indentation regressions around the gate are invisible.

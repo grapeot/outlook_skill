@@ -118,6 +118,36 @@ def test_reply_all_dry_run_uses_create_reply_all_and_does_not_send(monkeypatch):
     assert not any(url.endswith("/send") for _, url, _ in transport.requests)
 
 
+def test_reply_all_real_send_posts_send_and_reports_sent(monkeypatch):
+    """Regression: the non-dry-run branch must actually POST /send and return a payload.
+
+    A previous indentation bug left the /send call as dead code inside the
+    ``if dry_run:`` block, so real sends silently created drafts and returned None.
+    """
+    transport = FakeTransport(create_action="createReplyAll")
+    install_fake_graph(monkeypatch, transport)
+
+    payload = replier.reply_to_message(
+        settings(),
+        graph_id="ORIG_ID",
+        body_text="Hi all",
+        dry_run=False,
+        reply_all=True,
+    )
+
+    assert payload is not None
+    assert payload["dry_run"] is False
+    assert payload["sent"] is True
+    assert payload["operation"] == "reply_all"
+    send_calls = [
+        (m, url)
+        for m, url, _ in transport.requests
+        if url.endswith(f"/me/messages/{transport.draft_id}/send")
+    ]
+    assert len(send_calls) == 1
+    assert send_calls[0][0] == "POST"
+
+
 def test_reply_all_preserves_lowercase_graph_html_without_escaping(monkeypatch):
     quoted_html = '<div class="quoted"><table><tr><td>Original</td></tr></table></div>'
     transport = FakeTransport(
