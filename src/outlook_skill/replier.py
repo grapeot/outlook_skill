@@ -96,21 +96,21 @@ def reply_to_message(
                 "note": "draft created but not sent",
             }
 
-            _post_empty(client, f"/me/messages/{draft_id}/send")
+        _post_empty(client, f"/me/messages/{draft_id}/send")
 
-            return {
-                "operation": operation,
-                "dry_run": False,
-                "draft_id": draft_id,
-                "subject": subject if isinstance(subject, str) else None,
-                "to": to_recipients,
-                "cc": cc_recipients,
-                "attachment_count": len(attachment_results),
-                "attachments": attachment_results,
-                "body_content_type": patch_payload["body"]["contentType"],
-                "body_chars": len(patch_payload["body"]["content"]),
-                "sent": True,
-            }
+        return {
+            "operation": operation,
+            "dry_run": False,
+            "draft_id": draft_id,
+            "subject": subject if isinstance(subject, str) else None,
+            "to": to_recipients,
+            "cc": cc_recipients,
+            "attachment_count": len(attachment_results),
+            "attachments": attachment_results,
+            "body_content_type": patch_payload["body"]["contentType"],
+            "body_chars": len(patch_payload["body"]["content"]),
+            "sent": True,
+        }
 
 
 def _prepare_body(body_text: str, body_format: str) -> tuple[str, str]:
