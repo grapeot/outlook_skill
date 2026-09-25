@@ -468,7 +468,7 @@ def test_calendar_invite_cli_delegates_to_calendar(monkeypatch, capsys, tmp_path
     body.write_text("Agenda", encoding="utf-8")
     captured_call = {}
 
-    def fake_create_calendar_invite(settings, *, subject, start, end, timezone, attendees, body_text, body_format, location, optional_attendees, dry_run):
+    def fake_create_calendar_invite(settings, *, subject, start, end, timezone, attendees, body_text, body_format, location, optional_attendees, reminder_minutes, dry_run):
         captured_call.update({
             "subject": subject,
             "start": start,
@@ -526,7 +526,7 @@ def test_calendar_invite_cli_delegates_to_calendar(monkeypatch, capsys, tmp_path
 def test_calendar_invite_cli_without_to(monkeypatch, capsys):
     captured_call = {}
 
-    def fake_create_calendar_invite(settings, *, subject, start, end, timezone, attendees, body_text, body_format, location, optional_attendees, dry_run):
+    def fake_create_calendar_invite(settings, *, subject, start, end, timezone, attendees, body_text, body_format, location, optional_attendees, reminder_minutes, dry_run):
         captured_call.update({
             "subject": subject,
             "start": start,
@@ -573,7 +573,7 @@ def test_calendar_invite_cli_without_to(monkeypatch, capsys):
 def test_calendar_invite_cli_optional_attendee_without_to(monkeypatch, capsys):
     captured_call = {}
 
-    def fake_create_calendar_invite(settings, *, subject, start, end, timezone, attendees, body_text, body_format, location, optional_attendees, dry_run):
+    def fake_create_calendar_invite(settings, *, subject, start, end, timezone, attendees, body_text, body_format, location, optional_attendees, reminder_minutes, dry_run):
         captured_call.update({
             "subject": subject,
             "start": start,

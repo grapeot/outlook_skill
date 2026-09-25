@@ -124,6 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     calendar_invite.add_argument("--end", required=True, help="local date-time, e.g. 2026-05-06T10:30:00")
     calendar_invite.add_argument("--timezone", default="UTC", help="Microsoft Graph timeZone value, e.g. UTC or Pacific Standard Time")
     calendar_invite.add_argument("--location")
+    calendar_invite.add_argument("--reminder-minutes", type=int, default=None, help="reminder N minutes before start (Graph reminderMinutesBeforeStart)")
     calendar_invite.add_argument("--body-file", dest="body_file", help="optional path to a file containing the event body")
     calendar_invite.add_argument("--body-format", choices=("text", "html", "markdown", "md"), default="text")
     calendar_invite.add_argument("--dry-run", action="store_true", help="validate and render the payload but do not call Graph")
@@ -325,6 +326,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     body_format=args.body_format,
                     location=args.location,
                     optional_attendees=tuple(args.optional_attendee) if args.optional_attendee else (),
+                    reminder_minutes=args.reminder_minutes,
                     dry_run=args.dry_run,
                 )
                 emit_output(payload, args.format)

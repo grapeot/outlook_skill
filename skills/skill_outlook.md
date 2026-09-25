@@ -37,7 +37,7 @@ All commands run from the project root.
 .venv/bin/python -m outlook_skill.cli mail reply-all --graph-id <id> --body-file <path> [--body-format text|html|markdown] [--attach <path>]... [--to <addr>]... [--cc <addr>]... [--execute]
 .venv/bin/python -m outlook_skill.cli mail send --to <addr> --subject <subject> --body-file <path> [--body-format text|html|markdown] [--cc <addr>]... [--bcc <addr>]... [--attach <path>]... [--dry-run]
 
-.venv/bin/python -m outlook_skill.cli calendar invite [--to <addr>]... --subject <subject> --start <YYYY-MM-DDTHH:MM:SS> --end <YYYY-MM-DDTHH:MM:SS> [--timezone UTC] [--optional-attendee <addr>]... [--location <text>] [--body-file <path>] [--dry-run]
+.venv/bin/python -m outlook_skill.cli calendar invite [--to <addr>]... --subject <subject> --start <YYYY-MM-DDTHH:MM:SS> --end <YYYY-MM-DDTHH:MM:SS> [--timezone UTC] [--optional-attendee <addr>]... [--location <text>] [--reminder-minutes N] [--body-file <path>] [--dry-run]
 .venv/bin/python -m outlook_skill.cli calendar list [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--skip-recurring daily,weekly] --format json
 .venv/bin/python -m outlook_skill.cli calendar get --event-id <graph-event-id> --format json
 .venv/bin/python -m outlook_skill.cli calendar delete --event-id <graph-event-id> [--dry-run] --format json

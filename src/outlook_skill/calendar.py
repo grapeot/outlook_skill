@@ -23,12 +23,15 @@ def create_calendar_invite(
     body_format: str = "text",
     location: str | None = None,
     optional_attendees: tuple[str, ...] = (),
+    reminder_minutes: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, object]:
     if not subject.strip():
         raise OutlookSkillError("calendar invite requires --subject.")
     if body_format not in ("text", "html", "markdown", "md"):
         raise OutlookSkillError(f"Unsupported body format: {body_format}")
+    if reminder_minutes is not None and reminder_minutes < 0:
+        raise OutlookSkillError("calendar invite requires --reminder-minutes to be zero or positive.")
     _validate_time_range(start, end)
 
     content_type, content_value = _prepare_body(body_text, body_format)
@@ -47,6 +50,8 @@ def create_calendar_invite(
     }
     if location:
         graph_payload["location"] = {"displayName": location}
+    if reminder_minutes is not None:
+        graph_payload["reminderMinutesBeforeStart"] = reminder_minutes
 
     result = {
         "dry_run": dry_run,
@@ -58,6 +63,7 @@ def create_calendar_invite(
         "attendees": list(attendees),
         "optional_attendees": list(optional_attendees),
         "location": location,
+        "reminder_minutes": reminder_minutes,
         "body_content_type": content_type,
         "body_chars": len(content_value),
     }
