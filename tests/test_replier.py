@@ -132,6 +132,7 @@ def test_reply_all_real_send_posts_send_and_reports_sent(monkeypatch):
         graph_id="ORIG_ID",
         body_text="Hi all",
         dry_run=False,
+        execute=True,
         reply_all=True,
     )
 
@@ -146,6 +147,70 @@ def test_reply_all_real_send_posts_send_and_reports_sent(monkeypatch):
     ]
     assert len(send_calls) == 1
     assert send_calls[0][0] == "POST"
+
+
+def test_reply_default_creates_draft_and_never_sends(monkeypatch):
+    """Safety default: bare reply (no execute, no dry_run) must NOT send.
+
+    Regression for 2026-09-24: a real customer-support reply was sent because
+    the library sent on any non-dry-run call. The default must stay in Drafts.
+    """
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = replier.reply_to_message(
+        settings(),
+        graph_id="ORIG_ID",
+        body_text="Hi there",
+        body_format="text",
+    )
+
+    assert payload["dry_run"] is True
+    assert "sent" not in payload
+    assert payload["note"] == "draft created but not sent"
+    assert not any(url.endswith("/send") for _, url, _ in transport.requests)
+
+
+def test_reply_execute_flag_sends(monkeypatch):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = replier.reply_to_message(
+        settings(),
+        graph_id="ORIG_ID",
+        body_text="Hi there",
+        body_format="text",
+        execute=True,
+    )
+
+    assert payload["dry_run"] is False
+    assert payload["sent"] is True
+    send_calls = [
+        (m, url)
+        for m, url, _ in transport.requests
+        if url.endswith(f"/me/messages/{transport.draft_id}/send")
+    ]
+    assert len(send_calls) == 1
+    assert send_calls[0][0] == "POST"
+
+
+def test_reply_dry_run_wins_over_execute(monkeypatch):
+    """Legacy alias: --dry-run together with --execute must stay draft-only."""
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = replier.reply_to_message(
+        settings(),
+        graph_id="ORIG_ID",
+        body_text="Hi there",
+        body_format="text",
+        dry_run=True,
+        execute=True,
+    )
+
+    assert payload["dry_run"] is True
+    assert "sent" not in payload
+    assert not any(url.endswith("/send") for _, url, _ in transport.requests)
 
 
 def test_reply_all_preserves_lowercase_graph_html_without_escaping(monkeypatch):

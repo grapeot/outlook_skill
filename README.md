@@ -57,7 +57,7 @@ What you need to know up front:
 - **JSON output**: add `--format json` to any command for machine-readable output. Progress bars go to stderr; results go to stdout.
 - **First-time setup**: the human needs to run `auth login` once (opens a browser). After that, token refresh is automatic.
 - **Standard pipeline**: `mail download` → `mail export-md` → grep/search the markdown directory → `mail read --graph-id <id>` for full body → `mail reply`, `mail reply-all`, or `mail send` to compose responses.
-- **Safety**: all write commands (`send`, `reply`, `reply-all`, `invite`) support `--dry-run`. Use it before executing.
+- **Safety**: `reply` and `reply-all` default to creating a draft only — pass `--execute` to actually send. Other write commands (`send`, `invite`) support `--dry-run` validation.
 
 When the human hasn't completed setup, tell them clearly what's missing. Common issues:
 - No `.env`: ask them to copy `.env.example` and edit `OUTLOOK_EMAIL`
@@ -90,8 +90,7 @@ The library lives in `src/outlook_skill/` (10 modules). The CLI is a thin argpar
 ```
 data/mail/
 ├── messages/                # Raw .eml per message
-├── markdowns/               # AI-oriented .md (parallel renderer output)
-├── markdown/                # YAML frontmatter .md (exporter output)
+├── markdown/                # canonical AI-oriented .md with YAML frontmatter
 ├── mail.db                  # SQLite: messages, spam_rules, triage_labels
 └── oauth_token_cache.json   # MSAL token cache with refresh token
 ```

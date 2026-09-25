@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-09-24
+
+- Safety redesign of `mail reply` / `mail reply-all`: the default is now **draft-only**. Sending requires an explicit `--execute` flag. `--dry-run` remains as a legacy alias for the (now default) draft-only behavior, so existing scripts and agent prompts keep working. `replier.reply_to_message` gained an `execute` keyword (`send = execute and not dry_run`); the CLI stays thin and forwards both flags.
+- Motivation: a real customer-support reply was accidentally sent on 2026-09-24 because the previous design treated "no flag" as "send" — the destructive path was the default. Fixed by inverting the default: safe action by default, irreversible action behind an explicit opt-in flag.
+- Existing tests were updated: the 2026-08-20 regression test (`test_reply_all_real_send_posts_send_and_reports_sent`) now passes `execute=True`; new coverage for default-is-draft, `--execute` sends, and `--dry-run` overriding `--execute` at both replier and CLI levels.
+
 ### 2026-08-20
 
 - Fixed critical bug in `replier.py`: the real-send branch (`POST /me/messages/{id}/send`) was dead code — indented inside the `if dry_run:` block after the early return. Non-dry-run `mail reply`/`reply-all` runs created and patched a draft but never sent it, silently returning `None` (CLI printed `null`). Discovered during a real send; fixed indentation so non-dry-run calls send and return `sent: true`. Existing tests only covered the dry-run path, which is why the bug survived.
@@ -68,6 +74,7 @@
 
 ## Lessons Learned
 
+- **The destructive path must never be the default.** 2026-08-20's fix (make the dead `/send` branch actually run) restored the intended behavior but kept a flawed design: sending was the default and doing nothing required an opt-out flag. One month later that default sent a real email during agent-driven use. When a write operation is irreversible, invert the contract: safe default (draft), explicit `--execute` for the irreversible action. Flag-gated destructive actions survive both agent misremembering and stale docs.
 - For a local archiving and indexing-preparation use case, IMAP is a more natural fit than Graph in principle — but Graph's delegated permissions and consistent API surface proved more practical for personal Outlook.com accounts.
 - Raw MIME is the core asset. It takes priority over full-text indexing and attachment parsing because every downstream transformation can be rebuilt from raw, but the reverse is impossible.
 - Outlook.com's IMAP documentation points toward OAuth2/Modern Auth, but a working download loop needs to ship before chasing the full OAuth2 path. Graph sidesteps this by making auth a first-class part of the API.
