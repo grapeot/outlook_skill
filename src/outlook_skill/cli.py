@@ -79,7 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
         mail_reply.add_argument("--attach", action="append", help="path to attach (may repeat)")
         mail_reply.add_argument("--to", action="append", help="override reply recipients (may repeat)")
         mail_reply.add_argument("--cc", action="append", help="override cc recipients (may repeat)")
-        mail_reply.add_argument("--dry-run", action="store_true", help="create the draft but do not send")
+        mail_reply.add_argument("--dry-run", action="store_true", help="legacy alias: create the draft but do not send (this is now the default behavior)")
+        mail_reply.add_argument("--execute", action="store_true", help="actually send the reply (default is to create a draft only)")
         mail_reply.add_argument("--format", choices=("json", "text"), default="json")
 
     mail_send = mail_subparsers.add_parser("send")
@@ -248,6 +249,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     to_override=tuple(args.to) if args.to else (),
                     cc_override=tuple(args.cc) if args.cc else (),
                     dry_run=args.dry_run,
+                    execute=args.execute,
                     reply_all=args.mail_command == "reply-all",
                 )
                 emit_output(payload, args.format)

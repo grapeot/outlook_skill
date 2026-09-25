@@ -26,12 +26,18 @@ def reply_to_message(
     to_override: tuple[str, ...] = (),
     cc_override: tuple[str, ...] = (),
     dry_run: bool = False,
+    execute: bool = False,
     reply_all: bool = False,
 ) -> dict[str, object]:
     if not graph_id:
         raise OutlookSkillError("reply requires --graph-id.")
     if body_format not in ("text", "html", "markdown", "md"):
         raise OutlookSkillError(f"Unsupported body format: {body_format}")
+
+    # Safety default: replies stay in Drafts unless the caller explicitly
+    # passes --execute. ``--dry-run`` remains supported as a legacy alias
+    # for callers written against the old behavior.
+    send = bool(execute) and not dry_run
 
     for path in attachments:
         if not path.exists():
@@ -81,7 +87,7 @@ def reply_to_message(
         cc_recipients = _render_recipients(draft_meta.get("ccRecipients"))
         subject = draft_meta.get("subject")
 
-        if dry_run:
+        if not send:
             return {
                 "operation": operation,
                 "dry_run": True,

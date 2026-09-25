@@ -33,8 +33,8 @@ All commands run from the project root.
 .venv/bin/python -m outlook_skill.cli mail export-md [--days N] [--folder <name>]... [--subject <substr>] [--from <substr>] [--force]
 
 .venv/bin/python -m outlook_skill.cli mail draft --subject <subject> --body-file <path> [--body-format text|html|markdown] [--to <addr>]... [--cc <addr>]... [--bcc <addr>]... [--attach <path>]...
-.venv/bin/python -m outlook_skill.cli mail reply --graph-id <id> --body-file <path> [--body-format text|html|markdown] [--attach <path>]... [--to <addr>]... [--cc <addr>]... [--dry-run]
-.venv/bin/python -m outlook_skill.cli mail reply-all --graph-id <id> --body-file <path> [--body-format text|html|markdown] [--attach <path>]... [--to <addr>]... [--cc <addr>]... [--dry-run]
+.venv/bin/python -m outlook_skill.cli mail reply --graph-id <id> --body-file <path> [--body-format text|html|markdown] [--attach <path>]... [--to <addr>]... [--cc <addr>]... [--execute]
+.venv/bin/python -m outlook_skill.cli mail reply-all --graph-id <id> --body-file <path> [--body-format text|html|markdown] [--attach <path>]... [--to <addr>]... [--cc <addr>]... [--execute]
 .venv/bin/python -m outlook_skill.cli mail send --to <addr> --subject <subject> --body-file <path> [--body-format text|html|markdown] [--cc <addr>]... [--bcc <addr>]... [--attach <path>]... [--dry-run]
 
 .venv/bin/python -m outlook_skill.cli calendar invite [--to <addr>]... --subject <subject> --start <YYYY-MM-DDTHH:MM:SS> --end <YYYY-MM-DDTHH:MM:SS> [--timezone UTC] [--optional-attendee <addr>]... [--location <text>] [--body-file <path>] [--dry-run]
@@ -71,11 +71,11 @@ Creates a standalone draft via `POST /me/messages`. Requires `Mail.ReadWrite` sc
 
 ### `mail reply` / `mail reply-all`
 
-Replies in-thread via Graph draft flow. `mail reply` uses `createReply`; `mail reply-all` uses `createReplyAll`. Both require `Mail.ReadWrite` + `Mail.Send`. Attachments ≤3 MB use inline `fileAttachment`; larger files use upload session. `--to` / `--cc` override the draft recipients after Graph creates the draft. `--dry-run` creates the draft without sending. JSON output includes `operation: reply` or `operation: reply_all`.
+Replies in-thread via Graph draft flow. **Default behavior: creates a draft only — nothing is sent.** Pass `--execute` to actually send. `mail reply` uses `createReply`; `mail reply-all` uses `createReplyAll`. Both require `Mail.ReadWrite` + `Mail.Send`. Attachments ≤3 MB use inline `fileAttachment`; larger files use upload session. `--to` / `--cc` override the draft recipients after Graph creates the draft. The `--dry-run` flag is a legacy alias for the (now default) draft-only behavior. JSON output includes `operation: reply` or `operation: reply_all` plus `sent: true` only when `--execute` was passed.
 
 Graph's `createReply`/`createReplyAll` automatically includes the original message as a quoted thread in the draft body. The replier preserves this quoted content and prepends the user's reply above it. When content types differ (user sends Text, Graph returns HTML), the text side is converted to HTML for consistency.
 
-**Default reply mode:** When a user asks to "reply" or "回信" without specifying, use `mail reply-all` to preserve all original recipients. Use `mail reply` (reply to sender only) only when the user explicitly requests it.
+**Default reply mode:** When a user asks to "reply" or "回信" without specifying, use `mail reply-all` to preserve all original recipients. Use `mail reply` (reply to sender only) only when the user explicitly requests it. Replies default to a Draft; only pass `--execute` when the user has explicitly approved sending.
 
 ### `calendar invite`
 

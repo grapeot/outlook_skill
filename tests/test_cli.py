@@ -314,6 +314,7 @@ def test_mail_reply_all_cli_delegates_to_replier(monkeypatch, capsys, tmp_path):
         to_override,
         cc_override,
         dry_run,
+        execute,
         reply_all,
     ):
         captured_call.update({
@@ -324,6 +325,7 @@ def test_mail_reply_all_cli_delegates_to_replier(monkeypatch, capsys, tmp_path):
             "to_override": to_override,
             "cc_override": cc_override,
             "dry_run": dry_run,
+            "execute": execute,
             "reply_all": reply_all,
         })
         return {"operation": "reply_all", "dry_run": dry_run, "sent": False}
@@ -358,12 +360,107 @@ def test_mail_reply_all_cli_delegates_to_replier(monkeypatch, capsys, tmp_path):
     assert payload["dry_run"] is True
     assert captured_call["reply_all"] is True
     assert captured_call["dry_run"] is True
+    assert captured_call["execute"] is False
     assert captured_call["graph_id"] == "GRAPH_ID"
     assert captured_call["body_text"] == "Hello all"
     assert captured_call["body_format"] == "markdown"
     assert captured_call["attachments"] == (attachment,)
     assert captured_call["to_override"] == ("to@example.com",)
     assert captured_call["cc_override"] == ("cc@example.com",)
+
+
+def test_mail_reply_cli_defaults_to_draft_without_execute(monkeypatch, capsys, tmp_path):
+    """Regression: bare `mail reply` must NOT send; it only creates a draft.
+
+    A real customer-support reply was accidentally sent on 2026-09-24 because
+    the old CLI sent on any non-`--dry-run` invocation.
+    """
+    body = tmp_path / "body.md"
+    body.write_text("Hello", encoding="utf-8")
+    captured_call = {}
+
+    def fake_reply_to_message(
+        settings,
+        *,
+        graph_id,
+        body_text,
+        body_format,
+        attachments,
+        to_override,
+        cc_override,
+        dry_run,
+        execute,
+        reply_all,
+    ):
+        captured_call.update({"dry_run": dry_run, "execute": execute})
+        return {"operation": "reply", "dry_run": dry_run, "sent": not dry_run}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "reply_to_message", fake_reply_to_message)
+
+    exit_code = cli.main([
+        "mail",
+        "reply",
+        "--graph-id",
+        "GRAPH_ID",
+        "--body-file",
+        str(body),
+        "--format",
+        "json",
+    ])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    # CLI stays thin: with no flags it passes dry_run=False, execute=False.
+    # The draft-only guarantee is enforced inside replier (covered by
+    # test_replier.py); here we assert the CLI forwards the flags correctly.
+    assert captured_call["dry_run"] is False
+    assert captured_call["execute"] is False
+
+
+def test_mail_reply_cli_execute_flag_maps_to_send(monkeypatch, capsys, tmp_path):
+    body = tmp_path / "body.md"
+    body.write_text("Hello", encoding="utf-8")
+    captured_call = {}
+
+    def fake_reply_to_message(
+        settings,
+        *,
+        graph_id,
+        body_text,
+        body_format,
+        attachments,
+        to_override,
+        cc_override,
+        dry_run,
+        execute,
+        reply_all,
+    ):
+        captured_call.update({"dry_run": dry_run, "execute": execute})
+        return {"operation": "reply", "dry_run": False, "sent": True}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "reply_to_message", fake_reply_to_message)
+
+    exit_code = cli.main([
+        "mail",
+        "reply",
+        "--graph-id",
+        "GRAPH_ID",
+        "--body-file",
+        str(body),
+        "--execute",
+        "--format",
+        "json",
+    ])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert payload["dry_run"] is False
+    assert payload["sent"] is True
+    assert captured_call["execute"] is True
 
 
 def test_calendar_invite_cli_delegates_to_calendar(monkeypatch, capsys, tmp_path):
