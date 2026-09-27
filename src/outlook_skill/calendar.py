@@ -72,8 +72,7 @@ def create_calendar_invite(
         raise OutlookSkillError("calendar invite requires --end to be after --start.")
     start_aware = _to_aware_local(start_dt, zone, "--start")
     end_aware = _to_aware_local(end_dt, zone, "--end")
-    if end_aware <= start_aware:
-        raise OutlookSkillError("calendar invite requires --end to be after --start in absolute time.")
+    _validate_absolute_order(start_aware, end_aware)
 
     content_type, content_value = _prepare_body(body_text, body_format)
     graph_payload: dict[str, object] = {
@@ -163,6 +162,13 @@ def _parse_wall_clock(value: str, flag: str) -> datetime:
             f"(e.g. 2026-10-01T18:00:00); the zone is set by --timezone."
         )
     return parsed
+
+
+def _validate_absolute_order(start_aware: datetime, end_aware: datetime) -> None:
+    # Compare as absolute instants: aware datetimes sharing one ZoneInfo
+    # object compare by wall time in CPython, which inverts across DST gaps.
+    if end_aware.astimezone(ZoneInfo("UTC")) <= start_aware.astimezone(ZoneInfo("UTC")):
+        raise OutlookSkillError("calendar invite requires --end to be after --start in absolute time.")
 
 
 def _to_aware_local(dt: datetime, zone: ZoneInfo, flag: str) -> datetime:

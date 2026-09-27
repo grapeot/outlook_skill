@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, cast
 from urllib.parse import unquote
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -313,6 +315,16 @@ def test_create_calendar_invite_preserves_fractional_seconds(monkeypatch):
 
     assert payload["start_utc"] == "2026-10-02T01:00:00.500000Z"
     assert payload["end_utc"] == "2026-10-02T03:00:00.500000Z"
+
+
+def test_validate_absolute_order_catches_wall_time_inversion():
+    la = ZoneInfo("America/Los_Angeles")
+    # Wall time 02:30 < 03:00, but absolute 10:30Z > 10:00Z (gap-time offsets).
+    # A shared-ZoneInfo wall-time comparison would pass this pair.
+    start = datetime(2026, 3, 8, 2, 30, tzinfo=la)
+    end = datetime(2026, 3, 8, 3, 0, tzinfo=la)
+    with pytest.raises(OutlookSkillError, match="absolute time"):
+        calendar._validate_absolute_order(start, end)
 
 
 def test_create_calendar_invite_normalizes_lowercase_utc(monkeypatch):
