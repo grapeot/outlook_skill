@@ -26,6 +26,8 @@ _TIMEZONE_ALIASES: dict[str, str] = {
 
 def resolve_timezone(name: str) -> str:
     key = name.strip()
+    if key.upper() == "UTC":
+        return "UTC"
     if key.upper() in _TIMEZONE_ALIASES:
         return _TIMEZONE_ALIASES[key.upper()]
     if not key:
@@ -68,6 +70,10 @@ def create_calendar_invite(
     end_dt = _parse_wall_clock(end, "--end")
     if end_dt <= start_dt:
         raise OutlookSkillError("calendar invite requires --end to be after --start.")
+    start_aware = _to_aware_local(start_dt, zone, "--start")
+    end_aware = _to_aware_local(end_dt, zone, "--end")
+    if end_aware <= start_aware:
+        raise OutlookSkillError("calendar invite requires --end to be after --start in absolute time.")
 
     content_type, content_value = _prepare_body(body_text, body_format)
     graph_payload: dict[str, object] = {
@@ -95,8 +101,8 @@ def create_calendar_invite(
         "start": start,
         "end": end,
         "timezone": resolved_timezone,
-        "start_utc": _to_utc_iso(start_dt, zone),
-        "end_utc": _to_utc_iso(end_dt, zone),
+        "start_utc": _to_utc_iso(start_aware),
+        "end_utc": _to_utc_iso(end_aware),
         "attendees": list(attendees),
         "optional_attendees": list(optional_attendees),
         "location": location,
@@ -159,8 +165,21 @@ def _parse_wall_clock(value: str, flag: str) -> datetime:
     return parsed
 
 
-def _to_utc_iso(dt: datetime, zone: ZoneInfo) -> str:
-    return dt.replace(tzinfo=zone).astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+def _to_aware_local(dt: datetime, zone: ZoneInfo, flag: str) -> datetime:
+    aware = dt.replace(tzinfo=zone)
+    round_trip = aware.astimezone(ZoneInfo("UTC")).astimezone(zone).replace(tzinfo=None)
+    if round_trip != dt:
+        raise OutlookSkillError(
+            f"calendar invite {flag} {dt.isoformat()} does not exist in {zone.key} "
+            f"(DST spring-forward gap). Use a valid wall-clock time in that zone."
+        )
+    # Ambiguous fall-back times keep Python's fold=0 default: first occurrence
+    # (DST offset, the earlier UTC instant).
+    return aware
+
+
+def _to_utc_iso(aware: datetime) -> str:
+    return aware.astimezone(ZoneInfo("UTC")).isoformat().replace("+00:00", "Z")
 
 
 # --- calendar list ---

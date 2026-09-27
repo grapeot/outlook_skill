@@ -7,6 +7,7 @@
 - `calendar invite` timezone handling: `--timezone` now resolves IANA names and case-insensitive aliases (`PT`/`PST`/`PDT`/`Pacific`/`US/Pacific`, `MT`, `CT`, `ET`, and the Windows name `Pacific Standard Time`) to canonical IANA zones via `zoneinfo`. `--start`/`--end` must be wall-clock times — offset-bearing values are rejected with a clear error. The JSON result now includes `start_utc`/`end_utc` so callers can verify the converted instant without manual math.
 - Motivation: a real 2026-10-01 6pm PDT dinner reservation was stored as 6pm PDT on 2026-09-30 because the caller hand-converted local time to UTC and got the direction wrong (PDT is UTC-7, so 6pm local is 01:00 UTC the *next* day). The fix makes the CLI the single place that knows about zones: pass the wall-clock time plus the zone, and verify against the echoed `start_utc`/`end_utc`.
 - Added `tzdata; sys_platform == "linux"` dependency so `zoneinfo` works on slim Linux images without system tzdata.
+- DST edge cases hardened after review: nonexistent spring-forward wall-clock times are rejected (a round-trip check would otherwise silently assign a pre-transition offset and report `end_utc` before `start_utc`); ambiguous fall-back times use the documented `fold=0` policy (first occurrence); `--end` is validated in absolute time, and `start_utc`/`end_utc` preserve fractional-second precision.
 
 ### 2026-09-24
 
