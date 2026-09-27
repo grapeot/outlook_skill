@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-09-26
+
+- `calendar invite` timezone handling: `--timezone` now resolves IANA names and case-insensitive aliases (`PT`/`PST`/`PDT`/`Pacific`/`US/Pacific`, `MT`, `CT`, `ET`, and the Windows name `Pacific Standard Time`) to canonical IANA zones via `zoneinfo`. `--start`/`--end` must be wall-clock times — offset-bearing values are rejected with a clear error. The JSON result now includes `start_utc`/`end_utc` so callers can verify the converted instant without manual math.
+- Motivation: a real 2026-10-01 6pm PDT dinner reservation was stored as 6pm PDT on 2026-09-30 because the caller hand-converted local time to UTC and got the direction wrong (PDT is UTC-7, so 6pm local is 01:00 UTC the *next* day). The fix makes the CLI the single place that knows about zones: pass the wall-clock time plus the zone, and verify against the echoed `start_utc`/`end_utc`.
+- Added `tzdata; sys_platform == "linux"` dependency so `zoneinfo` works on slim Linux images without system tzdata.
+
 ### 2026-09-24
 
 - Safety redesign of `mail reply` / `mail reply-all`: the default is now **draft-only**. Sending requires an explicit `--execute` flag. `--dry-run` remains as a legacy alias for the (now default) draft-only behavior, so existing scripts and agent prompts keep working. `replier.reply_to_message` gained an `execute` keyword (`send = execute and not dry_run`); the CLI stays thin and forwards both flags.

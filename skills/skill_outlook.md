@@ -37,7 +37,7 @@ All commands run from the project root.
 .venv/bin/python -m outlook_skill.cli mail reply-all --graph-id <id> --body-file <path> [--body-format text|html|markdown] [--attach <path>]... [--to <addr>]... [--cc <addr>]... [--execute]
 .venv/bin/python -m outlook_skill.cli mail send --to <addr> --subject <subject> --body-file <path> [--body-format text|html|markdown] [--cc <addr>]... [--bcc <addr>]... [--attach <path>]... [--dry-run]
 
-.venv/bin/python -m outlook_skill.cli calendar invite [--to <addr>]... --subject <subject> --start <YYYY-MM-DDTHH:MM:SS> --end <YYYY-MM-DDTHH:MM:SS> [--timezone UTC] [--optional-attendee <addr>]... [--location <text>] [--reminder-minutes N] [--body-file <path>] [--dry-run]
+.venv/bin/python -m outlook_skill.cli calendar invite [--to <addr>]... --subject <subject> --start <YYYY-MM-DDTHH:MM:SS> --end <YYYY-MM-DDTHH:MM:SS> [--timezone <IANA-or-alias>] [--optional-attendee <addr>]... [--location <text>] [--reminder-minutes N] [--body-file <path>] [--dry-run]
 .venv/bin/python -m outlook_skill.cli calendar list [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--skip-recurring daily,weekly] --format json
 .venv/bin/python -m outlook_skill.cli calendar get --event-id <graph-event-id> --format json
 .venv/bin/python -m outlook_skill.cli calendar delete --event-id <graph-event-id> [--dry-run] --format json
@@ -80,6 +80,8 @@ Graph's `createReply`/`createReplyAll` automatically includes the original messa
 ### `calendar invite`
 
 Creates a calendar event via `POST /me/calendar/events`. Requires `Calendars.ReadWrite`. By default it creates an attendee-less appointment; pass `--to` or `--optional-attendee` only when someone should be invited. Supports location and body. `--dry-run` validates the payload without calling Graph.
+
+**Timezone handling — never hand-convert local time to UTC.** `--start`/`--end` are wall-clock times (no UTC offset allowed; offset-bearing values are rejected) interpreted in the `--timezone` zone. The zone accepts IANA names (`America/Los_Angeles`) or case-insensitive aliases (`PT`/`PST`/`PDT`/`Pacific`/`US/Pacific` → `America/Los_Angeles`, `MT` → `America/Denver`, `CT` → `America/Chicago`, `ET` → `America/New_York`, plus the Windows name `Pacific Standard Time` → `America/Los_Angeles`); the default is `UTC`. The CLI resolves the zone, sends the wall-clock `dateTime` with the resolved IANA `timeZone` to Graph, and returns `start_utc`/`end_utc` in the JSON output. Always cross-check `start_utc`/`end_utc` against the intended local time (e.g. "10/1 6pm PT" must yield `start_utc: 2026-10-02T01:00:00Z`) and verify with `calendar get` after creation.
 
 ### `calendar list`
 
