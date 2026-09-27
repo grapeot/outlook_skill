@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from markdown import markdown as md_to_html
@@ -9,6 +10,37 @@ from markdown import markdown as md_to_html
 from .auth import AuthManager
 from .config import Settings
 from .errors import GraphApiError, OutlookSkillError
+
+_TIMEZONE_ALIASES: dict[str, str] = {
+    "PT": "America/Los_Angeles",
+    "PST": "America/Los_Angeles",
+    "PDT": "America/Los_Angeles",
+    "PACIFIC": "America/Los_Angeles",
+    "US/PACIFIC": "America/Los_Angeles",
+    "PACIFIC STANDARD TIME": "America/Los_Angeles",
+    "MT": "America/Denver",
+    "CT": "America/Chicago",
+    "ET": "America/New_York",
+}
+
+
+def resolve_timezone(name: str) -> str:
+    key = name.strip()
+    if key.upper() == "UTC":
+        return "UTC"
+    if key.upper() in _TIMEZONE_ALIASES:
+        return _TIMEZONE_ALIASES[key.upper()]
+    if not key:
+        raise OutlookSkillError("calendar invite requires a non-empty --timezone value.")
+    try:
+        ZoneInfo(key)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        aliases = ", ".join(sorted(set(_TIMEZONE_ALIASES) | {"UTC"}))
+        raise OutlookSkillError(
+            f"calendar invite --timezone {name!r} is not a recognized timezone. "
+            f"Use an IANA zone name (e.g. America/Los_Angeles) or an alias: {aliases}."
+        ) from exc
+    return key
 
 
 def create_calendar_invite(
@@ -32,14 +64,22 @@ def create_calendar_invite(
         raise OutlookSkillError(f"Unsupported body format: {body_format}")
     if reminder_minutes is not None and reminder_minutes < 0:
         raise OutlookSkillError("calendar invite requires --reminder-minutes to be zero or positive.")
-    _validate_time_range(start, end)
+    resolved_timezone = resolve_timezone(timezone)
+    zone = ZoneInfo(resolved_timezone)
+    start_dt = _parse_wall_clock(start, "--start")
+    end_dt = _parse_wall_clock(end, "--end")
+    if end_dt <= start_dt:
+        raise OutlookSkillError("calendar invite requires --end to be after --start.")
+    start_aware = _to_aware_local(start_dt, zone, "--start")
+    end_aware = _to_aware_local(end_dt, zone, "--end")
+    _validate_absolute_order(start_aware, end_aware)
 
     content_type, content_value = _prepare_body(body_text, body_format)
     graph_payload: dict[str, object] = {
         "subject": subject,
         "body": {"contentType": content_type, "content": content_value},
-        "start": {"dateTime": start, "timeZone": timezone},
-        "end": {"dateTime": end, "timeZone": timezone},
+        "start": {"dateTime": start, "timeZone": resolved_timezone},
+        "end": {"dateTime": end, "timeZone": resolved_timezone},
         "attendees": [
             {**_recipient(addr), "type": "required"}
             for addr in attendees
@@ -59,7 +99,9 @@ def create_calendar_invite(
         "subject": subject,
         "start": start,
         "end": end,
-        "timezone": timezone,
+        "timezone": resolved_timezone,
+        "start_utc": _to_utc_iso(start_aware),
+        "end_utc": _to_utc_iso(end_aware),
         "attendees": list(attendees),
         "optional_attendees": list(optional_attendees),
         "location": location,
@@ -107,18 +149,43 @@ def _recipient(address: str) -> dict[str, dict[str, str]]:
     return {"emailAddress": {"address": address}}
 
 
-def _validate_time_range(start: str, end: str) -> None:
+def _parse_wall_clock(value: str, flag: str) -> datetime:
     try:
-        start_dt = _parse_iso_like(start)
-        end_dt = _parse_iso_like(end)
+        parsed = datetime.fromisoformat(value)
     except ValueError as exc:
-        raise OutlookSkillError("calendar invite requires ISO-like --start and --end values.") from exc
-    if end_dt <= start_dt:
-        raise OutlookSkillError("calendar invite requires --end to be after --start.")
+        raise OutlookSkillError(
+            f"calendar invite requires ISO-like {flag} values, e.g. 2026-05-06T10:00:00."
+        ) from exc
+    if parsed.tzinfo is not None:
+        raise OutlookSkillError(
+            f"calendar invite {flag} must be a wall-clock time without a UTC offset "
+            f"(e.g. 2026-10-01T18:00:00); the zone is set by --timezone."
+        )
+    return parsed
 
 
-def _parse_iso_like(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+def _validate_absolute_order(start_aware: datetime, end_aware: datetime) -> None:
+    # Compare as absolute instants: aware datetimes sharing one ZoneInfo
+    # object compare by wall time in CPython, which inverts across DST gaps.
+    if end_aware.astimezone(ZoneInfo("UTC")) <= start_aware.astimezone(ZoneInfo("UTC")):
+        raise OutlookSkillError("calendar invite requires --end to be after --start in absolute time.")
+
+
+def _to_aware_local(dt: datetime, zone: ZoneInfo, flag: str) -> datetime:
+    aware = dt.replace(tzinfo=zone)
+    round_trip = aware.astimezone(ZoneInfo("UTC")).astimezone(zone).replace(tzinfo=None)
+    if round_trip != dt:
+        raise OutlookSkillError(
+            f"calendar invite {flag} {dt.isoformat()} does not exist in {zone.key} "
+            f"(DST spring-forward gap). Use a valid wall-clock time in that zone."
+        )
+    # Ambiguous fall-back times keep Python's fold=0 default: first occurrence
+    # (DST offset, the earlier UTC instant).
+    return aware
+
+
+def _to_utc_iso(aware: datetime) -> str:
+    return aware.astimezone(ZoneInfo("UTC")).isoformat().replace("+00:00", "Z")
 
 
 # --- calendar list ---

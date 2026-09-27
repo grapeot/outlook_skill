@@ -11,6 +11,7 @@ dependencies = [
     "msal>=1.30,<2",
     "python-dotenv>=1.0,<2",
     "tqdm>=4.66,<5",
+    "tzdata>=2024.1; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]

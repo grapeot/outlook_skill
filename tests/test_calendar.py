@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, cast
 from urllib.parse import unquote
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -79,12 +81,15 @@ def test_create_calendar_invite_posts_to_me_calendar_events(monkeypatch):
 
     assert payload["created"] is True
     assert payload["event_id"] == "EVENT_123"
+    assert payload["timezone"] == "America/Los_Angeles"
+    assert payload["start_utc"] == "2026-05-06T17:00:00Z"
+    assert payload["end_utc"] == "2026-05-06T17:30:00Z"
     assert transport.requests[0][0] == "POST"
     assert transport.requests[0][1].endswith("/me/calendar/events")
     graph_payload = json.loads(transport.requests[0][2])
     assert graph_payload["subject"] == "Meeting"
-    assert graph_payload["start"] == {"dateTime": "2026-05-06T10:00:00", "timeZone": "Pacific Standard Time"}
-    assert graph_payload["end"] == {"dateTime": "2026-05-06T10:30:00", "timeZone": "Pacific Standard Time"}
+    assert graph_payload["start"] == {"dateTime": "2026-05-06T10:00:00", "timeZone": "America/Los_Angeles"}
+    assert graph_payload["end"] == {"dateTime": "2026-05-06T10:30:00", "timeZone": "America/Los_Angeles"}
     assert graph_payload["location"] == {"displayName": "Zoom"}
     assert graph_payload["attendees"][0]["emailAddress"]["address"] == "required@example.com"
     assert graph_payload["attendees"][0]["type"] == "required"
@@ -162,6 +167,182 @@ def test_create_calendar_invite_rejects_end_before_start():
             end="2026-05-06T10:00:00",
             attendees=("duck@example.com",),
         )
+
+
+def test_create_calendar_invite_resolves_pt_alias_with_dst(monkeypatch):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = calendar.create_calendar_invite(
+        settings(),
+        subject="Dinner",
+        start="2026-10-01T18:00:00",
+        end="2026-10-01T20:00:00",
+        timezone="PT",
+        attendees=(),
+    )
+
+    # October 1 is PDT (UTC-7): 18:00 local is 01:00 UTC the next day.
+    assert payload["timezone"] == "America/Los_Angeles"
+    assert payload["start_utc"] == "2026-10-02T01:00:00Z"
+    assert payload["end_utc"] == "2026-10-02T03:00:00Z"
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload["start"] == {"dateTime": "2026-10-01T18:00:00", "timeZone": "America/Los_Angeles"}
+    assert graph_payload["end"] == {"dateTime": "2026-10-01T20:00:00", "timeZone": "America/Los_Angeles"}
+
+
+def test_create_calendar_invite_pt_alias_uses_standard_time_in_winter(monkeypatch):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = calendar.create_calendar_invite(
+        settings(),
+        subject="Dinner",
+        start="2026-01-15T18:00:00",
+        end="2026-01-15T20:00:00",
+        timezone="pt",
+        attendees=(),
+    )
+
+    # January is PST (UTC-8): 18:00 local is 02:00 UTC the next day.
+    assert payload["timezone"] == "America/Los_Angeles"
+    assert payload["start_utc"] == "2026-01-16T02:00:00Z"
+    assert payload["end_utc"] == "2026-01-16T04:00:00Z"
+
+
+def test_create_calendar_invite_utc_is_identity(monkeypatch):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = calendar.create_calendar_invite(
+        settings(),
+        subject="Dinner",
+        start="2026-10-02T01:00:00",
+        end="2026-10-02T03:00:00",
+        timezone="UTC",
+        attendees=(),
+    )
+
+    assert payload["timezone"] == "UTC"
+    assert payload["start_utc"] == "2026-10-02T01:00:00Z"
+    assert payload["end_utc"] == "2026-10-02T03:00:00Z"
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload["start"]["timeZone"] == "UTC"
+
+
+@pytest.mark.parametrize("bad_start", ["2026-10-01T18:00:00+00:00", "2026-10-01T18:00:00Z"])
+def test_create_calendar_invite_rejects_offset_bearing_start(bad_start):
+    with pytest.raises(OutlookSkillError, match="wall-clock"):
+        calendar.create_calendar_invite(
+            settings(),
+            subject="Dinner",
+            start=bad_start,
+            end="2026-10-01T20:00:00",
+            timezone="PT",
+            attendees=(),
+        )
+
+
+def test_create_calendar_invite_rejects_offset_bearing_end():
+    with pytest.raises(OutlookSkillError, match="wall-clock"):
+        calendar.create_calendar_invite(
+            settings(),
+            subject="Dinner",
+            start="2026-10-01T18:00:00",
+            end="2026-10-01T20:00:00Z",
+            timezone="PT",
+            attendees=(),
+        )
+
+
+def test_create_calendar_invite_rejects_unknown_timezone():
+    with pytest.raises(OutlookSkillError, match="not a recognized timezone"):
+        calendar.create_calendar_invite(
+            settings(),
+            subject="Dinner",
+            start="2026-10-01T18:00:00",
+            end="2026-10-01T20:00:00",
+            timezone="Mars/Olympus_Mons",
+            attendees=(),
+        )
+
+
+def test_create_calendar_invite_rejects_nonexistent_spring_forward_time():
+    # 2026-03-08 02:00-03:00 PT does not exist (DST spring-forward).
+    # Without validation, 02:30 (PST offset) would map to 10:30Z while 03:00
+    # (PDT offset) maps to 10:00Z — end before start.
+    with pytest.raises(OutlookSkillError, match="does not exist"):
+        calendar.create_calendar_invite(
+            settings(),
+            subject="Dinner",
+            start="2026-03-08T02:30:00",
+            end="2026-03-08T03:00:00",
+            timezone="PT",
+            attendees=(),
+        )
+
+
+def test_create_calendar_invite_ambiguous_fall_back_time_uses_first_occurrence(monkeypatch):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = calendar.create_calendar_invite(
+        settings(),
+        subject="Dinner",
+        start="2026-11-01T01:30:00",
+        end="2026-11-01T02:00:00",
+        timezone="PT",
+        attendees=(),
+    )
+
+    # 01:30 happens twice on 2026-11-01; fold=0 picks the first occurrence (PDT, UTC-7).
+    assert payload["start_utc"] == "2026-11-01T08:30:00Z"
+    assert payload["end_utc"] == "2026-11-01T10:00:00Z"
+
+
+def test_create_calendar_invite_preserves_fractional_seconds(monkeypatch):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = calendar.create_calendar_invite(
+        settings(),
+        subject="Dinner",
+        start="2026-10-01T18:00:00.500000",
+        end="2026-10-01T20:00:00.500000",
+        timezone="PT",
+        attendees=(),
+    )
+
+    assert payload["start_utc"] == "2026-10-02T01:00:00.500000Z"
+    assert payload["end_utc"] == "2026-10-02T03:00:00.500000Z"
+
+
+def test_validate_absolute_order_catches_wall_time_inversion():
+    la = ZoneInfo("America/Los_Angeles")
+    # Wall time 02:30 < 03:00, but absolute 10:30Z > 10:00Z (gap-time offsets).
+    # A shared-ZoneInfo wall-time comparison would pass this pair.
+    start = datetime(2026, 3, 8, 2, 30, tzinfo=la)
+    end = datetime(2026, 3, 8, 3, 0, tzinfo=la)
+    with pytest.raises(OutlookSkillError, match="absolute time"):
+        calendar._validate_absolute_order(start, end)
+
+
+def test_create_calendar_invite_normalizes_lowercase_utc(monkeypatch):
+    transport = FakeTransport()
+    install_fake_graph(monkeypatch, transport)
+
+    payload = calendar.create_calendar_invite(
+        settings(),
+        subject="Dinner",
+        start="2026-10-02T01:00:00",
+        end="2026-10-02T03:00:00",
+        timezone="utc",
+        attendees=(),
+    )
+
+    assert payload["timezone"] == "UTC"
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload["start"]["timeZone"] == "UTC"
 
 
 # --- calendar list tests ---
