@@ -52,7 +52,7 @@ def create_calendar_invite(
     timezone: str = "UTC",
     attendees: tuple[str, ...],
     body_text: str = "",
-    body_format: str = "text",
+    body_format: str = "markdown",
     location: str | None = None,
     optional_attendees: tuple[str, ...] = (),
     reminder_minutes: int | None = None,

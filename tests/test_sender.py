@@ -86,7 +86,7 @@ def test_send_mail_posts_to_me_sendmail(monkeypatch):
     graph_payload = json.loads(transport.requests[0][2])
     message = graph_payload["message"]
     assert message["subject"] == "Hello"
-    assert message["body"] == {"contentType": "Text", "content": "Body"}
+    assert message["body"] == {"contentType": "HTML", "content": "<p>Body</p>"}
     assert message["toRecipients"][0]["emailAddress"]["address"] == "duck@example.com"
     assert message["ccRecipients"][0]["emailAddress"]["address"] == "cc@example.com"
     assert message["bccRecipients"][0]["emailAddress"]["address"] == "bcc@example.com"
@@ -191,7 +191,7 @@ def test_create_mail_draft_posts_to_me_messages_without_recipients(monkeypatch):
     assert transport.requests[0][1].endswith("/me/messages")
     graph_payload = json.loads(transport.requests[0][2])
     assert graph_payload["subject"] == "Draft subject"
-    assert graph_payload["body"] == {"contentType": "Text", "content": "Draft body"}
+    assert graph_payload["body"] == {"contentType": "HTML", "content": "<p>Draft body</p>"}
     assert graph_payload["toRecipients"] == []
     assert graph_payload["ccRecipients"] == []
     assert graph_payload["bccRecipients"] == []

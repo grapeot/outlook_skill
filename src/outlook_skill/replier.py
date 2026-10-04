@@ -21,7 +21,7 @@ def reply_to_message(
     *,
     graph_id: str,
     body_text: str,
-    body_format: str = "text",
+    body_format: str = "markdown",
     attachments: tuple[Path, ...] = (),
     to_override: tuple[str, ...] = (),
     cc_override: tuple[str, ...] = (),

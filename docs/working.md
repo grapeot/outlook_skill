@@ -2,6 +2,12 @@
 
 ## Changelog
 
+### 2026-10-04
+
+- Changed the default `--body-format` for `mail send`, `mail draft`, `mail reply`/`reply-all`, and `calendar invite` from `text` to `markdown`. Markdown bodies render to HTML, so headings, bold, and lists show up as intended in Outlook instead of literal `**`/`-` markup. Pass `--body-format text` to send a file verbatim as plain text. The library defaults in `sender.py`, `replier.py`, and `calendar.py` were updated to match the CLI.
+- Motivation: the previous plain-text default meant structured bodies arrived as flat, marked-up text. Markdown-as-default matches how agents actually write bodies and keeps a one-word opt-out (`text`) for the rare verbatim case.
+- Updated `tests/test_sender.py` assertions that relied on the old text default to expect the rendered HTML.
+
 ### 2026-09-26
 
 - `calendar invite` timezone handling: `--timezone` now resolves IANA names and case-insensitive aliases (`PT`/`PST`/`PDT`/`Pacific`/`US/Pacific`, `MT`, `CT`, `ET`, and the Windows name `Pacific Standard Time`) to canonical IANA zones via `zoneinfo`. `--start`/`--end` must be wall-clock times — offset-bearing values are rejected with a clear error. The JSON result now includes `start_utc`/`end_utc` so callers can verify the converted instant without manual math.
