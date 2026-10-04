@@ -63,15 +63,15 @@ Exports locally cached `.eml` to YAML frontmatter Markdown in `data/mail/markdow
 
 ### `mail send`
 
-Sends standalone email via `POST /me/sendMail`. Requires `Mail.Send` scope. Inline attachments up to 3 MB. `--body-format markdown` converts Markdown to HTML before sending. `--dry-run` validates the payload without calling Graph.
+Sends standalone email via `POST /me/sendMail`. Requires `Mail.Send` scope. Inline attachments up to 3 MB. `--body-format` defaults to `markdown`, which converts Markdown to HTML before sending; pass `--body-format text` to send the file verbatim as plain text. `--dry-run` validates the payload without calling Graph.
 
 ### `mail draft`
 
-Creates a standalone draft via `POST /me/messages`. Requires `Mail.ReadWrite` scope. `--to`, `--cc`, and `--bcc` are optional, so agents can save no-recipient drafts for human review. The command never sends; JSON output includes `draft_id`, `web_link`, recipient summaries, and `sent: false`. Inline attachments up to 3 MB are supported.
+Creates a standalone draft via `POST /me/messages`. Requires `Mail.ReadWrite` scope. `--to`, `--cc`, and `--bcc` are optional, so agents can save no-recipient drafts for human review. The command never sends; JSON output includes `draft_id`, `web_link`, recipient summaries, and `sent: false`. Inline attachments up to 3 MB are supported. `--body-format` defaults to `markdown` (Markdown converted to HTML); pass `--body-format text` for verbatim plain text.
 
 ### `mail reply` / `mail reply-all`
 
-Replies in-thread via Graph draft flow. **Default behavior: creates a draft only — nothing is sent.** Pass `--execute` to actually send. `mail reply` uses `createReply`; `mail reply-all` uses `createReplyAll`. Both require `Mail.ReadWrite` + `Mail.Send`. Attachments ≤3 MB use inline `fileAttachment`; larger files use upload session. `--to` / `--cc` override the draft recipients after Graph creates the draft. The `--dry-run` flag is a legacy alias for the (now default) draft-only behavior. JSON output includes `operation: reply` or `operation: reply_all` plus `sent: true` only when `--execute` was passed.
+Replies in-thread via Graph draft flow. **Default behavior: creates a draft only — nothing is sent.** Pass `--execute` to actually send. `mail reply` uses `createReply`; `mail reply-all` uses `createReplyAll`. Both require `Mail.ReadWrite` + `Mail.Send`. Attachments ≤3 MB use inline `fileAttachment`; larger files use upload session. `--body-format` defaults to `markdown`. `--to` / `--cc` override the draft recipients after Graph creates the draft. The `--dry-run` flag is a legacy alias for the (now default) draft-only behavior. JSON output includes `operation: reply` or `operation: reply_all` plus `sent: true` only when `--execute` was passed.
 
 Graph's `createReply`/`createReplyAll` automatically includes the original message as a quoted thread in the draft body. The replier preserves this quoted content and prepends the user's reply above it. When content types differ (user sends Text, Graph returns HTML), the text side is converted to HTML for consistency.
 
