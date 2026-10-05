@@ -368,8 +368,6 @@ def update_calendar_event(
     start: str | None = None,
     end: str | None = None,
     timezone: str = "UTC",
-    body_text: str | None = None,
-    body_format: str = "markdown",
     location: str | None = None,
     reminder_minutes: int | None = None,
     dry_run: bool = False,
@@ -379,25 +377,26 @@ def update_calendar_event(
 
     provided = [name for name, value in (
         ("--subject", subject),
-        ("--start", start),
-        ("--end", end),
-        ("--body-file", body_text),
+        ("--start/--end", start),
         ("--location", location),
         ("--reminder-minutes", reminder_minutes),
     ) if value is not None]
     if not provided:
         raise OutlookSkillError(
             "calendar update requires at least one field to change "
-            "(--subject, --start/--end, --body-file, --location, or --reminder-minutes)."
+            "(--subject, --start/--end, --location, or --reminder-minutes)."
         )
     if (start is None) != (end is None):
         raise OutlookSkillError("calendar update requires both --start and --end when changing the time.")
-    if body_format not in ("text", "html", "markdown", "md"):
-        raise OutlookSkillError(f"Unsupported body format: {body_format}")
     if reminder_minutes is not None and reminder_minutes < 0:
         raise OutlookSkillError("calendar update requires --reminder-minutes to be zero or positive.")
     if subject is not None and not subject.strip():
         raise OutlookSkillError("calendar update requires --subject to be non-empty when provided.")
+    if location is not None and not location.strip():
+        raise OutlookSkillError(
+            "calendar update requires --location to be non-empty when provided; "
+            "Graph replaces the whole location list, so an empty value would clear it."
+        )
 
     graph_payload: dict[str, object] = {}
     resolved_timezone: str | None = None
@@ -415,13 +414,6 @@ def update_calendar_event(
 
     if subject is not None:
         graph_payload["subject"] = subject
-
-    content_type: str | None = None
-    content_chars: int | None = None
-    if body_text is not None:
-        content_type, content_value = _prepare_body(body_text, body_format)
-        graph_payload["body"] = {"contentType": content_type, "content": content_value}
-        content_chars = len(content_value)
 
     if location is not None:
         graph_payload["location"] = {"displayName": location}
@@ -442,11 +434,10 @@ def update_calendar_event(
         "end_utc": end_utc,
         "location": location,
         "reminder_minutes": reminder_minutes,
-        "body_content_type": content_type,
-        "body_chars": content_chars,
         "update_notifications": (
-            "Graph notifies attendees of the change automatically and resets their "
-            "RSVP response, depending on the fields changed."
+            "Changing the time or subject of an event with attendees makes Graph email "
+            "an updated invitation and reset the attendees' response status. Other field "
+            "changes may or may not notify; confirm in the event's Sent Items if it matters."
         ),
     }
     if dry_run:

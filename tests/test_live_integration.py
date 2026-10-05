@@ -6,6 +6,7 @@ import pytest
 
 from outlook_skill.calendar import (
     create_calendar_invite,
+    delete_calendar_event,
     get_calendar_event,
     list_calendar_events,
     update_calendar_event,
@@ -118,9 +119,18 @@ def test_live_calendar_update_invite_to_self():
     assert updated["start_utc"] == new_start.strftime("%Y-%m-%dT%H:%M:%SZ")
     assert updated["end_utc"] == new_end.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # Read back from Graph to confirm the server stored the new time and subject,
+    # not just that the PATCH was accepted.
     detail = get_calendar_event(settings, event_id=event_id)
     event = cast(dict[str, object], detail["event"])
     assert event["subject"] == f"{subject} (rescheduled)"
+    stored_start = cast(dict[str, str], event["start"])["dateTime"]
+    stored_end = cast(dict[str, str], event["end"])["dateTime"]
+    assert stored_start.startswith(new_start.strftime("%Y-%m-%dT%H:%M:%S"))
+    assert stored_end.startswith(new_end.strftime("%Y-%m-%dT%H:%M:%S"))
+
+    # Clean up so repeated runs do not pile test events onto the calendar.
+    delete_calendar_event(settings, event_id=event_id)
 
 
 @pytest.mark.live_integration

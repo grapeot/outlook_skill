@@ -7,5 +7,10 @@ __pycache__/
 .DS_Store
 .env
 token_cache.json
+oauth_token_cache.json
+.env.*
+!.env.example
 data/
 *.pyc
+tmp/
+tmp_*

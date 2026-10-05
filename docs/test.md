@@ -21,7 +21,7 @@ Unit tests cover pure logic with no network dependency:
 - `mail reply` / `mail reply-all`: Graph `createReply` vs. `createReplyAll` endpoint selection, draft patching, quoted body preservation, attachment upload, operation output, and dry-run no-send behavior
 - `calendar invite`: Graph `/me/calendar/events` payload construction, required vs. optional attendees, time validation, and dry-run behavior
 - `calendar list`: Graph `/me/calendar/events` query parameter construction, time range filtering, `event_id` preservation, daily/weekly recurring event filtering, response parsing, and pagination
-- `calendar update`: partial `PATCH /me/calendar/events/{id}` payload construction — only provided fields are sent, at least one field is required, `--start`/`--end` must arrive as a pair, timezone resolution and DST validation are reused, Markdown body conversion applies, and dry-run does not call Graph
+- `calendar update`: partial `PATCH /me/calendar/events/{id}` payload construction — only provided fields are sent, at least one field is required, `--start`/`--end` must arrive as a pair, timezone resolution and DST validation are reused from the invite path, `--reminder-minutes 0` is sent (not dropped as falsy), blank subject/location and negative reminders are rejected, Graph errors raise `GraphApiError`, and dry-run does not call Graph
 - `calendar get/delete`: single-event fetch by Graph id; deletion fetches the full event before DELETE and returns it as `deleted_event`; delete dry-run does not call Graph
 
 ## Mocked integration tests

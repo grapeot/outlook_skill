@@ -663,7 +663,7 @@ def test_update_calendar_event_resolves_timezone_and_echoes_utc(monkeypatch):
     assert result["timezone"] == "America/Los_Angeles"
     assert result["start_utc"] == "2026-10-06T16:15:00Z"
     assert result["end_utc"] == "2026-10-06T18:00:00Z"
-    assert result["changed_fields"] == ["--end", "--start"]
+    assert result["changed_fields"] == ["--start/--end"]
     graph_payload = json.loads(transport.requests[0][2])
     assert graph_payload["start"] == {"dateTime": "2026-10-06T09:15:00", "timeZone": "America/Los_Angeles"}
     assert graph_payload["end"] == {"dateTime": "2026-10-06T11:00:00", "timeZone": "America/Los_Angeles"}
@@ -696,18 +696,75 @@ def test_update_calendar_event_rejects_end_before_start():
         )
 
 
-def test_update_calendar_event_markdown_body_converts_to_html(monkeypatch):
+def test_update_calendar_event_rejects_blank_subject():
+    with pytest.raises(OutlookSkillError, match="non-empty"):
+        calendar.update_calendar_event(settings(), event_id="EVT_123", subject="   ")
+
+
+def test_update_calendar_event_rejects_blank_location():
+    with pytest.raises(OutlookSkillError, match="non-empty"):
+        calendar.update_calendar_event(settings(), event_id="EVT_123", location="  ")
+
+
+def test_update_calendar_event_rejects_negative_reminder():
+    with pytest.raises(OutlookSkillError, match="zero or positive"):
+        calendar.update_calendar_event(settings(), event_id="EVT_123", reminder_minutes=-5)
+
+
+def test_update_calendar_event_reminder_zero_is_sent(monkeypatch):
     transport = FakeUpdateTransport()
     install_fake_calendar_graph(monkeypatch, transport)
 
-    calendar.update_calendar_event(
+    result = calendar.update_calendar_event(
         settings(),
         event_id="EVT_123",
-        body_text="**bold**",
-        body_format="markdown",
+        reminder_minutes=0,
     )
 
+    assert result["changed_fields"] == ["--reminder-minutes"]
     graph_payload = json.loads(transport.requests[0][2])
-    assert graph_payload["body"]["contentType"] == "HTML"
-    assert "<strong>bold</strong>" in graph_payload["body"]["content"]
-    assert "subject" not in graph_payload
+    assert graph_payload == {"reminderMinutesBeforeStart": 0}
+
+
+def test_update_calendar_event_location_only_payload(monkeypatch):
+    transport = FakeUpdateTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.update_calendar_event(settings(), event_id="EVT_123", location="Room B")
+
+    assert result["changed_fields"] == ["--location"]
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload == {"location": {"displayName": "Room B"}}
+
+
+def test_update_calendar_event_rejects_nonexistent_spring_forward_time():
+    with pytest.raises(OutlookSkillError, match="calendar update"):
+        calendar.update_calendar_event(
+            settings(),
+            event_id="EVT_123",
+            start="2026-03-08T02:30:00",
+            end="2026-03-08T03:00:00",
+            timezone="PT",
+        )
+
+
+def test_update_calendar_event_unknown_timezone_error_is_namespaced():
+    with pytest.raises(OutlookSkillError, match="calendar update"):
+        calendar.update_calendar_event(
+            settings(),
+            event_id="EVT_123",
+            start="2026-10-06T09:15:00",
+            end="2026-10-06T11:00:00",
+            timezone="Mars/Olympus_Mons",
+        )
+
+
+def test_update_calendar_event_graph_error_raises(monkeypatch):
+    class FailingTransport(httpx.BaseTransport):
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"error": {"message": "not found"}})
+
+    install_fake_calendar_graph(monkeypatch, FailingTransport())
+
+    with pytest.raises(calendar.GraphApiError):
+        calendar.update_calendar_event(settings(), event_id="EVT_123", subject="Updated")

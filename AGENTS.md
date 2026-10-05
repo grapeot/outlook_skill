@@ -4,7 +4,7 @@
 
 An AI-first local pipeline for Outlook.com email. It uses Microsoft Graph to download mail as raw MIME, stores metadata in SQLite, and renders `.eml` into AI-oriented Markdown. The library, CLI, and skill document share a single contract — both humans and AI agents consume the same interface.
 
-This is not an email client, a Graph debugging tool, or a background sync service. Write capabilities are constrained to four explicit operations: standalone send, in-thread reply, calendar invite creation, and single-event calendar update.
+This is not an email client, a Graph debugging tool, or a background sync service. Write capabilities are constrained to five explicit operations: standalone send, in-thread reply, calendar invite creation, single-event calendar update, and single-event calendar deletion.
 
 ## Working environment
 
