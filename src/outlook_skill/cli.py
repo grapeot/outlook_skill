@@ -12,7 +12,13 @@ from typing import Any, cast
 from tqdm import tqdm
 
 from .auth import AuthManager
-from .calendar import create_calendar_invite, delete_calendar_event, get_calendar_event, list_calendar_events
+from .calendar import (
+    create_calendar_invite,
+    delete_calendar_event,
+    get_calendar_event,
+    list_calendar_events,
+    update_calendar_event,
+)
 from .config import doctor_info, load_settings
 from .downloader import download_recent_mail, list_local_mail, read_local_mail
 from .errors import OutlookSkillError
@@ -140,6 +146,19 @@ def build_parser() -> argparse.ArgumentParser:
     calendar_get = calendar_subparsers.add_parser("get")
     calendar_get.add_argument("--event-id", required=True, help="Graph calendar event id to fetch")
     calendar_get.add_argument("--format", choices=("json", "text"), default="json")
+
+    calendar_update = calendar_subparsers.add_parser("update")
+    calendar_update.add_argument("--event-id", required=True, help="Graph calendar event id to update")
+    calendar_update.add_argument("--subject", help="new event subject")
+    calendar_update.add_argument("--start", help="new wall-clock start in --timezone (requires --end)")
+    calendar_update.add_argument("--end", help="new wall-clock end in --timezone (requires --start)")
+    calendar_update.add_argument("--timezone", default="UTC", help="zone for --start/--end: IANA name or alias (PT, MT, CT, ET, Pacific, PST, PDT). Output includes start_utc/end_utc for verification; do not hand-convert times.")
+    calendar_update.add_argument("--location", help="new location")
+    calendar_update.add_argument("--reminder-minutes", type=int, default=None, help="reminder N minutes before start (Graph reminderMinutesBeforeStart)")
+    calendar_update.add_argument("--body-file", dest="body_file", help="optional path to a file containing the new event body")
+    calendar_update.add_argument("--body-format", choices=("text", "html", "markdown", "md"), default="markdown")
+    calendar_update.add_argument("--dry-run", action="store_true", help="validate and render the payload but do not call Graph")
+    calendar_update.add_argument("--format", choices=("json", "text"), default="json")
 
     calendar_delete = calendar_subparsers.add_parser("delete")
     calendar_delete.add_argument("--event-id", required=True, help="Graph calendar event id to delete")
@@ -346,6 +365,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                 payload = get_calendar_event(
                     settings,
                     event_id=args.event_id,
+                )
+                emit_output(payload, args.format)
+                return 0
+            if args.calendar_command == "update":
+                body_text: str | None = None
+                if args.body_file:
+                    body_path = Path(args.body_file)
+                    if not body_path.exists():
+                        raise OutlookSkillError(f"--body-file not found: {body_path}")
+                    body_text = body_path.read_text(encoding="utf-8")
+                payload = update_calendar_event(
+                    settings,
+                    event_id=args.event_id,
+                    subject=args.subject,
+                    start=args.start,
+                    end=args.end,
+                    timezone=args.timezone,
+                    body_text=body_text,
+                    body_format=args.body_format,
+                    location=args.location,
+                    reminder_minutes=args.reminder_minutes,
+                    dry_run=args.dry_run,
                 )
                 emit_output(payload, args.format)
                 return 0

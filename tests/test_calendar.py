@@ -591,3 +591,123 @@ def test_delete_calendar_event_dry_run_does_not_call_graph(monkeypatch):
 
     assert result["deleted"] is False
     assert transport.requests == []
+
+
+# --- calendar update tests ---
+
+
+class FakeUpdateTransport(httpx.BaseTransport):
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str, Any]] = []
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append((request.method, str(request.url), request.content))
+        if request.method == "PATCH" and str(request.url).endswith("/me/calendar/events/EVT_123"):
+            return httpx.Response(200, json={
+                "id": "EVT_123",
+                "subject": "Updated",
+                "webLink": "https://calendar.example/event",
+            })
+        return httpx.Response(404, json={"error": "unexpected"})
+
+
+def test_update_calendar_event_dry_run_does_not_call_graph(monkeypatch):
+    transport = FakeUpdateTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.update_calendar_event(
+        settings(),
+        event_id="EVT_123",
+        start="2026-10-06T09:15:00",
+        end="2026-10-06T11:00:00",
+        timezone="PT",
+        dry_run=True,
+    )
+
+    assert result["dry_run"] is True
+    assert result["updated"] is False
+    assert transport.requests == []
+
+
+def test_update_calendar_event_patches_only_provided_fields(monkeypatch):
+    transport = FakeUpdateTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.update_calendar_event(
+        settings(),
+        event_id="EVT_123",
+        subject="Updated",
+    )
+
+    assert result["updated"] is True
+    assert result["changed_fields"] == ["--subject"]
+    assert transport.requests[0][0] == "PATCH"
+    assert transport.requests[0][1].endswith("/me/calendar/events/EVT_123")
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload == {"subject": "Updated"}
+
+
+def test_update_calendar_event_resolves_timezone_and_echoes_utc(monkeypatch):
+    transport = FakeUpdateTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.update_calendar_event(
+        settings(),
+        event_id="EVT_123",
+        start="2026-10-06T09:15:00",
+        end="2026-10-06T11:00:00",
+        timezone="PT",
+    )
+
+    # October 6 is PDT (UTC-7): 09:15 local is 16:15 UTC.
+    assert result["timezone"] == "America/Los_Angeles"
+    assert result["start_utc"] == "2026-10-06T16:15:00Z"
+    assert result["end_utc"] == "2026-10-06T18:00:00Z"
+    assert result["changed_fields"] == ["--end", "--start"]
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload["start"] == {"dateTime": "2026-10-06T09:15:00", "timeZone": "America/Los_Angeles"}
+    assert graph_payload["end"] == {"dateTime": "2026-10-06T11:00:00", "timeZone": "America/Los_Angeles"}
+    assert "subject" not in graph_payload
+
+
+def test_update_calendar_event_requires_at_least_one_field():
+    with pytest.raises(OutlookSkillError, match="at least one field"):
+        calendar.update_calendar_event(settings(), event_id="EVT_123")
+
+
+def test_update_calendar_event_requires_both_start_and_end():
+    with pytest.raises(OutlookSkillError, match="both --start and --end"):
+        calendar.update_calendar_event(settings(), event_id="EVT_123", start="2026-10-06T09:15:00")
+
+
+def test_update_calendar_event_rejects_missing_event_id():
+    with pytest.raises(OutlookSkillError, match="--event-id"):
+        calendar.update_calendar_event(settings(), event_id=" ", subject="Updated")
+
+
+def test_update_calendar_event_rejects_end_before_start():
+    with pytest.raises(OutlookSkillError, match="--end to be after --start"):
+        calendar.update_calendar_event(
+            settings(),
+            event_id="EVT_123",
+            start="2026-10-06T11:00:00",
+            end="2026-10-06T09:15:00",
+            timezone="PT",
+        )
+
+
+def test_update_calendar_event_markdown_body_converts_to_html(monkeypatch):
+    transport = FakeUpdateTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    calendar.update_calendar_event(
+        settings(),
+        event_id="EVT_123",
+        body_text="**bold**",
+        body_format="markdown",
+    )
+
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload["body"]["contentType"] == "HTML"
+    assert "<strong>bold</strong>" in graph_payload["body"]["content"]
+    assert "subject" not in graph_payload

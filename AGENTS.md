@@ -4,7 +4,7 @@
 
 An AI-first local pipeline for Outlook.com email. It uses Microsoft Graph to download mail as raw MIME, stores metadata in SQLite, and renders `.eml` into AI-oriented Markdown. The library, CLI, and skill document share a single contract — both humans and AI agents consume the same interface.
 
-This is not an email client, a Graph debugging tool, or a background sync service. Write capabilities are constrained to three explicit operations: standalone send, in-thread reply, and calendar invite creation.
+This is not an email client, a Graph debugging tool, or a background sync service. Write capabilities are constrained to four explicit operations: standalone send, in-thread reply, calendar invite creation, and single-event calendar update.
 
 ## Working environment
 
@@ -22,6 +22,7 @@ python -m outlook_skill.cli mail render-markdown --input-dir data/mail/messages 
 python -m outlook_skill.cli mail list-local --limit 50 --format json
 python -m outlook_skill.cli mail send --to someone@example.com --subject "Subject" --body-file body.md --dry-run --format json
 python -m outlook_skill.cli calendar invite --to someone@example.com --subject "Meeting" --start 2026-05-06T10:00:00 --end 2026-05-06T10:30:00 --dry-run --format json
+python -m outlook_skill.cli calendar update --event-id <id> --start 2026-05-06T11:00:00 --end 2026-05-06T11:30:00 --dry-run --format json
 ```
 
 ## Code boundaries

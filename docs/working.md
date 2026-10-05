@@ -2,6 +2,13 @@
 
 ## Changelog
 
+### 2026-10-05
+
+- Added `calendar update` (`PATCH /me/calendar/events/{id}`) for partial single-event edits: `--subject`, `--start`/`--end` (with `--timezone`), `--location`, `--reminder-minutes`, and `--body-file`. It requires at least one field, treats `--start`/`--end` as an atomic pair, reuses the invite path's timezone resolution and DST validation, and supports `--dry-run`. JSON output echoes `changed_fields` plus `start_utc`/`end_utc` when the time changes.
+- Motivation: a real reschedule on 2026-10-05 had to be done by hand-calling Graph `PATCH` because the CLI had no update command (`docs/rfc.md` listed "event update" as deferred). The update now lives in the library and CLI like every other calendar operation.
+- Documented that Graph notifies attendees automatically when a `PATCH` changes a meeting: it sends an updated meeting message (`meetingMessageType: meetingRequest`, `meetingRequestType: fullUpdate`) and resets each attendee's RSVP to `notResponded`. The JSON result surfaces an `update_notifications` note so callers do not send a duplicate "I moved the meeting" email. This is Graph behavior on the event object, not a library option.
+- Removed `event update` from the deferred list; RSVP management stays deferred.
+
 ### 2026-10-04
 
 - Changed the default `--body-format` for `mail send`, `mail draft`, `mail reply`/`reply-all`, and `calendar invite` from `text` to `markdown`. Markdown bodies render to HTML, so headings, bold, and lists show up as intended in Outlook instead of literal `**`/`-` markup. Pass `--body-format text` to send a file verbatim as plain text. The library defaults in `sender.py`, `replier.py`, and `calendar.py` were updated to match the CLI.
@@ -101,3 +108,4 @@
 - Second-round review confirmed that noise filtering had significantly improved. Remaining issues centered on marketing email card/table structure preservation, further tracking URL compression, and inline image placeholder quality.
 - Rule-based triage converges quickly in early rounds but hits diminishing returns as the problem shifts from obvious spam to gray-zone low-value notifications. Multi-label classification (not binary spam/not-spam) is the right model for this transition.
 - A write-path bug survived the full test suite because every test exercised the dry-run branch. Any command with a `--dry-run` gate needs at least one mocked test that follows the non-dry-run path end to end and asserts the real send/delete call happens; otherwise indentation regressions around the gate are invisible.
+- Mutating a Graph event is not a silent local edit: `PATCH` on a meeting automatically sends attendees an updated invitation and resets their RSVP to `notResponded`. Verify the side effect in the API's own docs or Sent Items rather than assuming "an API change wouldn't notify anyone"; a reschedule implemented by hand on 2026-10-05 turned out to have already emailed the attendee.

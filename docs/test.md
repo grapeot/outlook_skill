@@ -2,7 +2,7 @@
 
 ## Scope
 
-The test suite verifies five properties: OAuth2 configuration contracts are clear; the library and thin CLI produce consistent download output; `.eml` → Markdown rendering produces AI-usable output; standalone send and calendar invite payloads follow stable contracts; and real Outlook.com Graph writes are never triggered without explicit opt-in.
+The test suite verifies five properties: OAuth2 configuration contracts are clear; the library and thin CLI produce consistent download output; `.eml` → Markdown rendering produces AI-usable output; standalone send, calendar invite, and calendar update payloads follow stable contracts; and real Outlook.com Graph writes are never triggered without explicit opt-in.
 
 ## Unit tests
 
@@ -21,6 +21,7 @@ Unit tests cover pure logic with no network dependency:
 - `mail reply` / `mail reply-all`: Graph `createReply` vs. `createReplyAll` endpoint selection, draft patching, quoted body preservation, attachment upload, operation output, and dry-run no-send behavior
 - `calendar invite`: Graph `/me/calendar/events` payload construction, required vs. optional attendees, time validation, and dry-run behavior
 - `calendar list`: Graph `/me/calendar/events` query parameter construction, time range filtering, `event_id` preservation, daily/weekly recurring event filtering, response parsing, and pagination
+- `calendar update`: partial `PATCH /me/calendar/events/{id}` payload construction — only provided fields are sent, at least one field is required, `--start`/`--end` must arrive as a pair, timezone resolution and DST validation are reused, Markdown body conversion applies, and dry-run does not call Graph
 - `calendar get/delete`: single-event fetch by Graph id; deletion fetches the full event before DELETE and returns it as `deleted_event`; delete dry-run does not call Graph
 
 ## Mocked integration tests
@@ -36,6 +37,7 @@ Mocked integration tests verify the seams between library and CLI using fake aut
 - `mail reply-all --dry-run` creates a Graph reply-all draft and does not send it
 - `calendar invite --dry-run` does not call Graph and outputs stable JSON
 - `calendar list` correctly parses Graph responses, filters daily/weekly recurring events, and handles empty results
+- `calendar update --dry-run` does not call Graph and outputs stable JSON
 - `calendar get` and `calendar delete --dry-run` expose stable CLI JSON output without unintended Graph writes
 
 ## Live integration tests
@@ -49,6 +51,7 @@ Live integration tests exercise the full OAuth2 → Graph → local disk pipelin
 - Real `.eml` files are exported to canonical `.md`
 - With `OUTLOOK_LIVE_ALLOW_SEND=1`, a test email is sent to self and observed in recent messages
 - With `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1`, a future calendar invite is created for self
+- With `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1`, a created invite is rescheduled via `calendar update`, and a follow-up `calendar get` confirms the new time and subject
 - `calendar list` reads events from the default calendar, confirms stable output structure including `event_id`, and correctly distinguishes recurring events
 - `calendar get` can fetch a listed event by `event_id`
 
@@ -88,6 +91,7 @@ After significant changes, run at minimum:
 .venv/bin/python -m outlook_skill.cli calendar invite --to your_account@outlook.com --subject "Dry run" --start 2026-05-06T10:00:00 --end 2026-05-06T10:30:00 --dry-run --format json
 .venv/bin/python -m outlook_skill.cli calendar list --start 2026-05-08 --end 2026-05-15 --format json
 .venv/bin/python -m outlook_skill.cli calendar get --event-id <event_id> --format json
+.venv/bin/python -m outlook_skill.cli calendar update --event-id <event_id> --start 2026-05-06T11:00:00 --end 2026-05-06T11:30:00 --dry-run --format json
 .venv/bin/python -m outlook_skill.cli calendar delete --event-id <event_id> --dry-run --format json
 ```
 

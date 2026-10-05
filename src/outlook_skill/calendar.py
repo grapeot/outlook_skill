@@ -24,20 +24,20 @@ _TIMEZONE_ALIASES: dict[str, str] = {
 }
 
 
-def resolve_timezone(name: str) -> str:
+def resolve_timezone(name: str, *, command: str = "calendar invite") -> str:
     key = name.strip()
     if key.upper() == "UTC":
         return "UTC"
     if key.upper() in _TIMEZONE_ALIASES:
         return _TIMEZONE_ALIASES[key.upper()]
     if not key:
-        raise OutlookSkillError("calendar invite requires a non-empty --timezone value.")
+        raise OutlookSkillError(f"{command} requires a non-empty --timezone value.")
     try:
         ZoneInfo(key)
     except (ZoneInfoNotFoundError, ValueError) as exc:
         aliases = ", ".join(sorted(set(_TIMEZONE_ALIASES) | {"UTC"}))
         raise OutlookSkillError(
-            f"calendar invite --timezone {name!r} is not a recognized timezone. "
+            f"{command} --timezone {name!r} is not a recognized timezone. "
             f"Use an IANA zone name (e.g. America/Los_Angeles) or an alias: {aliases}."
         ) from exc
     return key
@@ -64,15 +64,9 @@ def create_calendar_invite(
         raise OutlookSkillError(f"Unsupported body format: {body_format}")
     if reminder_minutes is not None and reminder_minutes < 0:
         raise OutlookSkillError("calendar invite requires --reminder-minutes to be zero or positive.")
-    resolved_timezone = resolve_timezone(timezone)
-    zone = ZoneInfo(resolved_timezone)
-    start_dt = _parse_wall_clock(start, "--start")
-    end_dt = _parse_wall_clock(end, "--end")
-    if end_dt <= start_dt:
-        raise OutlookSkillError("calendar invite requires --end to be after --start.")
-    start_aware = _to_aware_local(start_dt, zone, "--start")
-    end_aware = _to_aware_local(end_dt, zone, "--end")
-    _validate_absolute_order(start_aware, end_aware)
+    resolved_timezone, start_aware, end_aware = _resolve_event_times(
+        start, end, timezone, command="calendar invite"
+    )
 
     content_type, content_value = _prepare_body(body_text, body_format)
     graph_payload: dict[str, object] = {
@@ -149,34 +143,55 @@ def _recipient(address: str) -> dict[str, dict[str, str]]:
     return {"emailAddress": {"address": address}}
 
 
-def _parse_wall_clock(value: str, flag: str) -> datetime:
+def _resolve_event_times(
+    start: str,
+    end: str,
+    timezone: str,
+    *,
+    command: str = "calendar invite",
+) -> tuple[str, datetime, datetime]:
+    resolved_timezone = resolve_timezone(timezone, command=command)
+    zone = ZoneInfo(resolved_timezone)
+    start_dt = _parse_wall_clock(start, "--start", command=command)
+    end_dt = _parse_wall_clock(end, "--end", command=command)
+    if end_dt <= start_dt:
+        raise OutlookSkillError(f"{command} requires --end to be after --start.")
+    start_aware = _to_aware_local(start_dt, zone, "--start", command=command)
+    end_aware = _to_aware_local(end_dt, zone, "--end", command=command)
+    _validate_absolute_order(start_aware, end_aware, command=command)
+    return resolved_timezone, start_aware, end_aware
+
+
+def _parse_wall_clock(value: str, flag: str, *, command: str = "calendar invite") -> datetime:
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError as exc:
         raise OutlookSkillError(
-            f"calendar invite requires ISO-like {flag} values, e.g. 2026-05-06T10:00:00."
+            f"{command} requires ISO-like {flag} values, e.g. 2026-05-06T10:00:00."
         ) from exc
     if parsed.tzinfo is not None:
         raise OutlookSkillError(
-            f"calendar invite {flag} must be a wall-clock time without a UTC offset "
+            f"{command} {flag} must be a wall-clock time without a UTC offset "
             f"(e.g. 2026-10-01T18:00:00); the zone is set by --timezone."
         )
     return parsed
 
 
-def _validate_absolute_order(start_aware: datetime, end_aware: datetime) -> None:
+def _validate_absolute_order(
+    start_aware: datetime, end_aware: datetime, *, command: str = "calendar invite"
+) -> None:
     # Compare as absolute instants: aware datetimes sharing one ZoneInfo
     # object compare by wall time in CPython, which inverts across DST gaps.
     if end_aware.astimezone(ZoneInfo("UTC")) <= start_aware.astimezone(ZoneInfo("UTC")):
-        raise OutlookSkillError("calendar invite requires --end to be after --start in absolute time.")
+        raise OutlookSkillError(f"{command} requires --end to be after --start in absolute time.")
 
 
-def _to_aware_local(dt: datetime, zone: ZoneInfo, flag: str) -> datetime:
+def _to_aware_local(dt: datetime, zone: ZoneInfo, flag: str, *, command: str = "calendar invite") -> datetime:
     aware = dt.replace(tzinfo=zone)
     round_trip = aware.astimezone(ZoneInfo("UTC")).astimezone(zone).replace(tzinfo=None)
     if round_trip != dt:
         raise OutlookSkillError(
-            f"calendar invite {flag} {dt.isoformat()} does not exist in {zone.key} "
+            f"{command} {flag} {dt.isoformat()} does not exist in {zone.key} "
             f"(DST spring-forward gap). Use a valid wall-clock time in that zone."
         )
     # Ambiguous fall-back times keep Python's fold=0 default: first occurrence
@@ -343,6 +358,121 @@ def delete_calendar_event(
             response_text=response.text,
         )
     return {**result, "deleted": True, "deleted_event": deleted_event}
+
+
+def update_calendar_event(
+    settings: Settings,
+    *,
+    event_id: str,
+    subject: str | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    timezone: str = "UTC",
+    body_text: str | None = None,
+    body_format: str = "markdown",
+    location: str | None = None,
+    reminder_minutes: int | None = None,
+    dry_run: bool = False,
+) -> dict[str, object]:
+    if not event_id.strip():
+        raise OutlookSkillError("calendar update requires --event-id.")
+
+    provided = [name for name, value in (
+        ("--subject", subject),
+        ("--start", start),
+        ("--end", end),
+        ("--body-file", body_text),
+        ("--location", location),
+        ("--reminder-minutes", reminder_minutes),
+    ) if value is not None]
+    if not provided:
+        raise OutlookSkillError(
+            "calendar update requires at least one field to change "
+            "(--subject, --start/--end, --body-file, --location, or --reminder-minutes)."
+        )
+    if (start is None) != (end is None):
+        raise OutlookSkillError("calendar update requires both --start and --end when changing the time.")
+    if body_format not in ("text", "html", "markdown", "md"):
+        raise OutlookSkillError(f"Unsupported body format: {body_format}")
+    if reminder_minutes is not None and reminder_minutes < 0:
+        raise OutlookSkillError("calendar update requires --reminder-minutes to be zero or positive.")
+    if subject is not None and not subject.strip():
+        raise OutlookSkillError("calendar update requires --subject to be non-empty when provided.")
+
+    graph_payload: dict[str, object] = {}
+    resolved_timezone: str | None = None
+    start_utc: str | None = None
+    end_utc: str | None = None
+
+    if start is not None and end is not None:
+        resolved_timezone, start_aware, end_aware = _resolve_event_times(
+            start, end, timezone, command="calendar update"
+        )
+        graph_payload["start"] = {"dateTime": start, "timeZone": resolved_timezone}
+        graph_payload["end"] = {"dateTime": end, "timeZone": resolved_timezone}
+        start_utc = _to_utc_iso(start_aware)
+        end_utc = _to_utc_iso(end_aware)
+
+    if subject is not None:
+        graph_payload["subject"] = subject
+
+    content_type: str | None = None
+    content_chars: int | None = None
+    if body_text is not None:
+        content_type, content_value = _prepare_body(body_text, body_format)
+        graph_payload["body"] = {"contentType": content_type, "content": content_value}
+        content_chars = len(content_value)
+
+    if location is not None:
+        graph_payload["location"] = {"displayName": location}
+
+    if reminder_minutes is not None:
+        graph_payload["reminderMinutesBeforeStart"] = reminder_minutes
+
+    result = {
+        "dry_run": dry_run,
+        "endpoint": f"/me/calendar/events/{event_id}",
+        "event_id": event_id,
+        "changed_fields": sorted(provided),
+        "subject": subject,
+        "start": start,
+        "end": end,
+        "timezone": resolved_timezone,
+        "start_utc": start_utc,
+        "end_utc": end_utc,
+        "location": location,
+        "reminder_minutes": reminder_minutes,
+        "body_content_type": content_type,
+        "body_chars": content_chars,
+        "update_notifications": (
+            "Graph notifies attendees of the change automatically and resets their "
+            "RSVP response, depending on the fields changed."
+        ),
+    }
+    if dry_run:
+        return {**result, "updated": False, "note": "dry run; Graph PATCH was not called"}
+
+    token = AuthManager(settings).get_access_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    with httpx.Client(base_url=settings.graph_base_url, timeout=httpx.Timeout(120.0, connect=10.0), headers=headers) as client:
+        response = client.patch(f"/me/calendar/events/{event_id}", json=graph_payload)
+    if response.is_error:
+        raise GraphApiError(
+            f"Graph calendar event update failed with status {response.status_code}",
+            status_code=response.status_code,
+            response_text=response.text,
+        )
+    payload = cast(dict[str, object], response.json() if response.content else {})
+    web_link = payload.get("webLink")
+    return {
+        **result,
+        "updated": True,
+        "web_link": web_link if isinstance(web_link, str) else None,
+    }
 
 
 def get_calendar_event(
