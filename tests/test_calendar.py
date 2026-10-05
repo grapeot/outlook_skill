@@ -618,8 +618,8 @@ def test_update_calendar_event_dry_run_does_not_call_graph(monkeypatch):
     result = calendar.update_calendar_event(
         settings(),
         event_id="EVT_123",
-        start="2026-10-06T09:15:00",
-        end="2026-10-06T11:00:00",
+        start="2026-04-15T13:00:00",
+        end="2026-04-15T14:30:00",
         timezone="PT",
         dry_run=True,
     )
@@ -654,19 +654,19 @@ def test_update_calendar_event_resolves_timezone_and_echoes_utc(monkeypatch):
     result = calendar.update_calendar_event(
         settings(),
         event_id="EVT_123",
-        start="2026-10-06T09:15:00",
-        end="2026-10-06T11:00:00",
+        start="2026-04-15T13:00:00",
+        end="2026-04-15T14:30:00",
         timezone="PT",
     )
 
-    # October 6 is PDT (UTC-7): 09:15 local is 16:15 UTC.
+    # April 15 is PDT (UTC-7): 13:00 local is 20:00 UTC.
     assert result["timezone"] == "America/Los_Angeles"
-    assert result["start_utc"] == "2026-10-06T16:15:00Z"
-    assert result["end_utc"] == "2026-10-06T18:00:00Z"
+    assert result["start_utc"] == "2026-04-15T20:00:00Z"
+    assert result["end_utc"] == "2026-04-15T21:30:00Z"
     assert result["changed_fields"] == ["--start/--end"]
     graph_payload = json.loads(transport.requests[0][2])
-    assert graph_payload["start"] == {"dateTime": "2026-10-06T09:15:00", "timeZone": "America/Los_Angeles"}
-    assert graph_payload["end"] == {"dateTime": "2026-10-06T11:00:00", "timeZone": "America/Los_Angeles"}
+    assert graph_payload["start"] == {"dateTime": "2026-04-15T13:00:00", "timeZone": "America/Los_Angeles"}
+    assert graph_payload["end"] == {"dateTime": "2026-04-15T14:30:00", "timeZone": "America/Los_Angeles"}
     assert "subject" not in graph_payload
 
 
@@ -677,7 +677,7 @@ def test_update_calendar_event_requires_at_least_one_field():
 
 def test_update_calendar_event_requires_both_start_and_end():
     with pytest.raises(OutlookSkillError, match="both --start and --end"):
-        calendar.update_calendar_event(settings(), event_id="EVT_123", start="2026-10-06T09:15:00")
+        calendar.update_calendar_event(settings(), event_id="EVT_123", start="2026-04-15T13:00:00")
 
 
 def test_update_calendar_event_rejects_missing_event_id():
@@ -690,8 +690,8 @@ def test_update_calendar_event_rejects_end_before_start():
         calendar.update_calendar_event(
             settings(),
             event_id="EVT_123",
-            start="2026-10-06T11:00:00",
-            end="2026-10-06T09:15:00",
+            start="2026-04-15T14:30:00",
+            end="2026-04-15T13:00:00",
             timezone="PT",
         )
 
@@ -753,8 +753,8 @@ def test_update_calendar_event_unknown_timezone_error_is_namespaced():
         calendar.update_calendar_event(
             settings(),
             event_id="EVT_123",
-            start="2026-10-06T09:15:00",
-            end="2026-10-06T11:00:00",
+            start="2026-04-15T13:00:00",
+            end="2026-04-15T14:30:00",
             timezone="Mars/Olympus_Mons",
         )
 

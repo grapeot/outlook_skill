@@ -710,9 +710,9 @@ def test_calendar_update_cli_delegates_to_calendar(monkeypatch, capsys):
         "--subject",
         "Rescheduled",
         "--start",
-        "2026-10-06T09:15:00",
+        "2026-04-15T13:00:00",
         "--end",
-        "2026-10-06T11:00:00",
+        "2026-04-15T14:30:00",
         "--timezone",
         "PT",
         "--location",
@@ -729,8 +729,8 @@ def test_calendar_update_cli_delegates_to_calendar(monkeypatch, capsys):
     assert json.loads(captured.out)["dry_run"] is True
     assert captured_call["event_id"] == "EVT_123"
     assert captured_call["subject"] == "Rescheduled"
-    assert captured_call["start"] == "2026-10-06T09:15:00"
-    assert captured_call["end"] == "2026-10-06T11:00:00"
+    assert captured_call["start"] == "2026-04-15T13:00:00"
+    assert captured_call["end"] == "2026-04-15T14:30:00"
     assert captured_call["timezone"] == "PT"
     assert captured_call["location"] == "Zoom"
     assert captured_call["reminder_minutes"] == 0
