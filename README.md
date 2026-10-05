@@ -57,7 +57,7 @@ What you need to know up front:
 - **JSON output**: add `--format json` to any command for machine-readable output. Progress bars go to stderr; results go to stdout.
 - **First-time setup**: the human needs to run `auth login` once (opens a browser). After that, token refresh is automatic.
 - **Standard pipeline**: `mail download` → `mail export-md` → grep/search the markdown directory → `mail read --graph-id <id>` for full body → `mail reply`, `mail reply-all`, or `mail send` to compose responses.
-- **Safety**: `reply` and `reply-all` default to creating a draft only — pass `--execute` to actually send. Other write commands (`send`, `invite`) support `--dry-run` validation.
+- **Safety**: `reply` and `reply-all` default to creating a draft only — pass `--execute` to actually send. Other write commands (`send`, `invite`, `update`, `delete`) support `--dry-run` validation.
 
 When the human hasn't completed setup, tell them clearly what's missing. Common issues:
 - No `.env`: ask them to copy `.env.example` and edit `OUTLOOK_EMAIL`

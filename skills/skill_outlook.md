@@ -6,7 +6,7 @@
 - Search or read locally cached email
 - Render `.eml` to AI-oriented Markdown
 - Create standalone drafts, send email, reply in-thread, or reply-all in-thread via Microsoft Graph
-- Create calendar invites or list upcoming events
+- Create, update, list, or delete calendar events
 - Apply rule-based triage labels to local messages
 
 ## Prerequisites
@@ -40,6 +40,7 @@ All commands run from the project root.
 .venv/bin/python -m outlook_skill.cli calendar invite [--to <addr>]... --subject <subject> --start <YYYY-MM-DDTHH:MM:SS> --end <YYYY-MM-DDTHH:MM:SS> [--timezone <IANA-or-alias>] [--optional-attendee <addr>]... [--location <text>] [--reminder-minutes N] [--body-file <path>] [--dry-run]
 .venv/bin/python -m outlook_skill.cli calendar list [--start YYYY-MM-DD] [--end YYYY-MM-DD] [--skip-recurring daily,weekly] --format json
 .venv/bin/python -m outlook_skill.cli calendar get --event-id <graph-event-id> --format json
+.venv/bin/python -m outlook_skill.cli calendar update --event-id <graph-event-id> [--subject <subject>] [--start <YYYY-MM-DDTHH:MM:SS> --end <YYYY-MM-DDTHH:MM:SS>] [--timezone <IANA-or-alias>] [--location <text>] [--reminder-minutes N] [--dry-run]
 .venv/bin/python -m outlook_skill.cli calendar delete --event-id <graph-event-id> [--dry-run] --format json
 ```
 
@@ -90,6 +91,16 @@ Reads upcoming events from the default calendar via `GET /me/calendar/events`. D
 ### `calendar get`
 
 Fetches one default-calendar event via `GET /me/calendar/events/{id}` and returns the raw Graph event payload. Use this before destructive changes when body, attendees, or timezone details matter.
+
+### `calendar update`
+
+Changes fields on one default-calendar event via `PATCH /me/calendar/events/{id}`. Requires `Calendars.ReadWrite`. Pass only the fields to change; at least one is required, and `--start`/`--end` must come together. Supported: `--subject`, `--start`+`--end` (with `--timezone`), `--location`, `--reminder-minutes`. `--body-file` is intentionally not supported: Graph replaces the whole body, and dropping the meeting blob from an online meeting's body disables the meeting, so editing the body needs a read-modify-write that this command does not do. JSON output echoes `changed_fields` (the CLI flags you passed; a time change lists the single `--start/--end` token) and, when times change, `start_utc`/`end_utc` for verification. `--dry-run` renders the payload without calling Graph.
+
+**Timezone handling.** Same rule as `calendar invite`: `--start`/`--end` are wall-clock times in `--timezone`, which defaults to **UTC** and does not inherit the event's existing timezone. `calendar get` often returns Windows zone names (e.g. `Pacific Standard Time`); never pass a `get` wall-clock time back without an explicit `--timezone`, or a US-Pacific meeting will be rewritten 7-8 hours off. Cross-check the echoed `start_utc`/`end_utc` before trusting the result.
+
+**Recurring events.** `calendar update` does not reject recurring events, and `calendar list` returns series-master ids for recurring series. Editing one changes the whole series, not a single occurrence. Check the event via `calendar get` before updating if you are not sure it is a one-off.
+
+**Graph may email attendees.** Changing the time or subject of an event that has attendees makes Graph send an updated invitation and reset their response status to `notResponded`; other field changes may or may not notify. Do not reflexively send a separate "I moved the meeting" email. This is a property of the event object, not of this CLI; verify in the event's Sent Items when the notification actually matters.
 
 ### `calendar delete`
 

@@ -591,3 +591,180 @@ def test_delete_calendar_event_dry_run_does_not_call_graph(monkeypatch):
 
     assert result["deleted"] is False
     assert transport.requests == []
+
+
+# --- calendar update tests ---
+
+
+class FakeUpdateTransport(httpx.BaseTransport):
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str, Any]] = []
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append((request.method, str(request.url), request.content))
+        if request.method == "PATCH" and str(request.url).endswith("/me/calendar/events/EVT_123"):
+            return httpx.Response(200, json={
+                "id": "EVT_123",
+                "subject": "Updated",
+                "webLink": "https://calendar.example/event",
+            })
+        return httpx.Response(404, json={"error": "unexpected"})
+
+
+def test_update_calendar_event_dry_run_does_not_call_graph(monkeypatch):
+    transport = FakeUpdateTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.update_calendar_event(
+        settings(),
+        event_id="EVT_123",
+        start="2026-04-15T13:00:00",
+        end="2026-04-15T14:30:00",
+        timezone="PT",
+        dry_run=True,
+    )
+
+    assert result["dry_run"] is True
+    assert result["updated"] is False
+    assert transport.requests == []
+
+
+def test_update_calendar_event_patches_only_provided_fields(monkeypatch):
+    transport = FakeUpdateTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.update_calendar_event(
+        settings(),
+        event_id="EVT_123",
+        subject="Updated",
+    )
+
+    assert result["updated"] is True
+    assert result["changed_fields"] == ["--subject"]
+    assert transport.requests[0][0] == "PATCH"
+    assert transport.requests[0][1].endswith("/me/calendar/events/EVT_123")
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload == {"subject": "Updated"}
+
+
+def test_update_calendar_event_resolves_timezone_and_echoes_utc(monkeypatch):
+    transport = FakeUpdateTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.update_calendar_event(
+        settings(),
+        event_id="EVT_123",
+        start="2026-04-15T13:00:00",
+        end="2026-04-15T14:30:00",
+        timezone="PT",
+    )
+
+    # April 15 is PDT (UTC-7): 13:00 local is 20:00 UTC.
+    assert result["timezone"] == "America/Los_Angeles"
+    assert result["start_utc"] == "2026-04-15T20:00:00Z"
+    assert result["end_utc"] == "2026-04-15T21:30:00Z"
+    assert result["changed_fields"] == ["--start/--end"]
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload["start"] == {"dateTime": "2026-04-15T13:00:00", "timeZone": "America/Los_Angeles"}
+    assert graph_payload["end"] == {"dateTime": "2026-04-15T14:30:00", "timeZone": "America/Los_Angeles"}
+    assert "subject" not in graph_payload
+
+
+def test_update_calendar_event_requires_at_least_one_field():
+    with pytest.raises(OutlookSkillError, match="at least one field"):
+        calendar.update_calendar_event(settings(), event_id="EVT_123")
+
+
+def test_update_calendar_event_requires_both_start_and_end():
+    with pytest.raises(OutlookSkillError, match="both --start and --end"):
+        calendar.update_calendar_event(settings(), event_id="EVT_123", start="2026-04-15T13:00:00")
+
+
+def test_update_calendar_event_rejects_missing_event_id():
+    with pytest.raises(OutlookSkillError, match="--event-id"):
+        calendar.update_calendar_event(settings(), event_id=" ", subject="Updated")
+
+
+def test_update_calendar_event_rejects_end_before_start():
+    with pytest.raises(OutlookSkillError, match="--end to be after --start"):
+        calendar.update_calendar_event(
+            settings(),
+            event_id="EVT_123",
+            start="2026-04-15T14:30:00",
+            end="2026-04-15T13:00:00",
+            timezone="PT",
+        )
+
+
+def test_update_calendar_event_rejects_blank_subject():
+    with pytest.raises(OutlookSkillError, match="non-empty"):
+        calendar.update_calendar_event(settings(), event_id="EVT_123", subject="   ")
+
+
+def test_update_calendar_event_rejects_blank_location():
+    with pytest.raises(OutlookSkillError, match="non-empty"):
+        calendar.update_calendar_event(settings(), event_id="EVT_123", location="  ")
+
+
+def test_update_calendar_event_rejects_negative_reminder():
+    with pytest.raises(OutlookSkillError, match="zero or positive"):
+        calendar.update_calendar_event(settings(), event_id="EVT_123", reminder_minutes=-5)
+
+
+def test_update_calendar_event_reminder_zero_is_sent(monkeypatch):
+    transport = FakeUpdateTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.update_calendar_event(
+        settings(),
+        event_id="EVT_123",
+        reminder_minutes=0,
+    )
+
+    assert result["changed_fields"] == ["--reminder-minutes"]
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload == {"reminderMinutesBeforeStart": 0}
+
+
+def test_update_calendar_event_location_only_payload(monkeypatch):
+    transport = FakeUpdateTransport()
+    install_fake_calendar_graph(monkeypatch, transport)
+
+    result = calendar.update_calendar_event(settings(), event_id="EVT_123", location="Room B")
+
+    assert result["changed_fields"] == ["--location"]
+    graph_payload = json.loads(transport.requests[0][2])
+    assert graph_payload == {"location": {"displayName": "Room B"}}
+
+
+def test_update_calendar_event_rejects_nonexistent_spring_forward_time():
+    with pytest.raises(OutlookSkillError, match="calendar update"):
+        calendar.update_calendar_event(
+            settings(),
+            event_id="EVT_123",
+            start="2026-03-08T02:30:00",
+            end="2026-03-08T03:00:00",
+            timezone="PT",
+        )
+
+
+def test_update_calendar_event_unknown_timezone_error_is_namespaced():
+    with pytest.raises(OutlookSkillError, match="calendar update"):
+        calendar.update_calendar_event(
+            settings(),
+            event_id="EVT_123",
+            start="2026-04-15T13:00:00",
+            end="2026-04-15T14:30:00",
+            timezone="Mars/Olympus_Mons",
+        )
+
+
+def test_update_calendar_event_graph_error_raises(monkeypatch):
+    class FailingTransport(httpx.BaseTransport):
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404, json={"error": {"message": "not found"}})
+
+    install_fake_calendar_graph(monkeypatch, FailingTransport())
+
+    with pytest.raises(calendar.GraphApiError):
+        calendar.update_calendar_event(settings(), event_id="EVT_123", subject="Updated")

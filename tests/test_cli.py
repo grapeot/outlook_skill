@@ -683,6 +683,87 @@ def test_calendar_get_cli_delegates_to_calendar(monkeypatch, capsys):
     assert captured_call["event_id"] == "EVT_123"
 
 
+def test_calendar_update_cli_delegates_to_calendar(monkeypatch, capsys):
+    captured_call = {}
+
+    def fake_update_calendar_event(settings, *, event_id, subject, start, end, timezone, location, reminder_minutes, dry_run):
+        captured_call.update({
+            "event_id": event_id,
+            "subject": subject,
+            "start": start,
+            "end": end,
+            "timezone": timezone,
+            "location": location,
+            "reminder_minutes": reminder_minutes,
+            "dry_run": dry_run,
+        })
+        return {"event_id": event_id, "updated": False, "dry_run": dry_run}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "update_calendar_event", fake_update_calendar_event)
+
+    exit_code = cli.main([
+        "calendar",
+        "update",
+        "--event-id",
+        "EVT_123",
+        "--subject",
+        "Rescheduled",
+        "--start",
+        "2026-04-15T13:00:00",
+        "--end",
+        "2026-04-15T14:30:00",
+        "--timezone",
+        "PT",
+        "--location",
+        "Zoom",
+        "--reminder-minutes",
+        "0",
+        "--dry-run",
+        "--format",
+        "json",
+    ])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert json.loads(captured.out)["dry_run"] is True
+    assert captured_call["event_id"] == "EVT_123"
+    assert captured_call["subject"] == "Rescheduled"
+    assert captured_call["start"] == "2026-04-15T13:00:00"
+    assert captured_call["end"] == "2026-04-15T14:30:00"
+    assert captured_call["timezone"] == "PT"
+    assert captured_call["location"] == "Zoom"
+    assert captured_call["reminder_minutes"] == 0
+
+
+def test_calendar_update_cli_subject_only(monkeypatch, capsys):
+    captured_call = {}
+
+    def fake_update_calendar_event(settings, *, event_id, subject, start, end, timezone, location, reminder_minutes, dry_run):
+        captured_call.update({"event_id": event_id, "subject": subject, "start": start, "end": end, "dry_run": dry_run})
+        return {"event_id": event_id, "updated": False, "dry_run": dry_run}
+
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "update_calendar_event", fake_update_calendar_event)
+
+    exit_code = cli.main([
+        "calendar",
+        "update",
+        "--event-id",
+        "EVT_123",
+        "--subject",
+        "Renamed",
+        "--format",
+        "json",
+    ])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured_call["event_id"] == "EVT_123"
+    assert captured_call["start"] is None
+    assert captured_call["end"] is None
+
+
 def test_calendar_delete_cli_delegates_to_calendar(monkeypatch, capsys):
     captured_call = {}
 

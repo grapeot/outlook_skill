@@ -2,6 +2,14 @@
 
 ## Changelog
 
+### 2026-10-05
+
+- Added `calendar update` (`PATCH /me/calendar/events/{id}`) for partial single-event edits: `--subject`, `--start`/`--end` (with `--timezone`), `--location`, and `--reminder-minutes`. It requires at least one field, treats `--start`/`--end` as an atomic pair, reuses the invite path's timezone resolution and DST validation, and supports `--dry-run`. JSON output echoes `changed_fields` (the CLI flags passed; a time change is the single `--start/--end` token) plus `start_utc`/`end_utc` when the time changes.
+- Motivation: rescheduling a meeting had to be done by hand-calling Graph `PATCH` because the CLI had no update command (`docs/rfc.md` listed "event update" as deferred). The update now lives in the library and CLI like every other calendar operation.
+- Body update is deliberately excluded from this command. Graph replaces the whole body on PATCH; dropping the meeting blob from an online meeting's body disables the meeting, so a safe edit needs a read-modify-write this command does not do. Rejected at review rather than shipped with a footgun.
+- Documented that Graph may notify attendees when a `PATCH` changes a meeting: changing the time or subject of an event with attendees sends an updated meeting message and resets response status. The JSON result surfaces an `update_notifications` note so callers do not send a duplicate "I moved the meeting" email. The exact notification scope is not exhaustively documented by Graph, so the note is scoped to the verified fields.
+- Removed `event update` from the deferred list; RSVP management stays deferred.
+
 ### 2026-10-04
 
 - Changed the default `--body-format` for `mail send`, `mail draft`, `mail reply`/`reply-all`, and `calendar invite` from `text` to `markdown`. Markdown bodies render to HTML, so headings, bold, and lists show up as intended in Outlook instead of literal `**`/`-` markup. Pass `--body-format text` to send a file verbatim as plain text. The library defaults in `sender.py`, `replier.py`, and `calendar.py` were updated to match the CLI.
@@ -101,3 +109,4 @@
 - Second-round review confirmed that noise filtering had significantly improved. Remaining issues centered on marketing email card/table structure preservation, further tracking URL compression, and inline image placeholder quality.
 - Rule-based triage converges quickly in early rounds but hits diminishing returns as the problem shifts from obvious spam to gray-zone low-value notifications. Multi-label classification (not binary spam/not-spam) is the right model for this transition.
 - A write-path bug survived the full test suite because every test exercised the dry-run branch. Any command with a `--dry-run` gate needs at least one mocked test that follows the non-dry-run path end to end and asserts the real send/delete call happens; otherwise indentation regressions around the gate are invisible.
+- Mutating a Graph event is not a silent local edit: `PATCH` on a meeting can automatically email attendees an updated invitation and reset their response status. Verify the side effect in the API's own docs or the event's Sent Items rather than assuming "an API change wouldn't notify anyone"; a hand-rolled reschedule turned out to have already emailed the attendee.
