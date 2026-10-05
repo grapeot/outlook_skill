@@ -33,7 +33,7 @@ Do not expand the system into arbitrary Graph passthrough. Each new capability m
 
 ## Security
 
-Do not hardcode real client IDs, refresh tokens, or access tokens in code, tests, or docs. Downloaded `.eml` files, Markdown, SQLite metadata, and the token cache are sensitive — they stay out of git. Live integration tests default to skip; they require explicit opt-in via `OUTLOOK_ENABLE_LIVE_TESTS=1`. Write operations require additional flags: `OUTLOOK_LIVE_ALLOW_SEND=1` and `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1`.
+Never hardcode secrets: refresh tokens, access tokens, and client secrets stay out of code, tests, docs, and git. The pre-registered shared MSAL public client ID in `.env.example` is the deliberate exception — it is a public identifier (no secret), shipped so personal-account users can authenticate without Entra access. A `client_secret` value is a secret and must never be committed. Downloaded `.eml` files, Markdown, SQLite metadata, and the token cache are sensitive — they stay out of git. Live integration tests default to skip; they require explicit opt-in via `OUTLOOK_ENABLE_LIVE_TESTS=1`. Write operations require additional flags: `OUTLOOK_LIVE_ALLOW_SEND=1` and `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1`.
 
 ## Testing and docs
 
