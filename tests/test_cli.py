@@ -89,6 +89,42 @@ def test_mail_download_accepts_multiple_folder_flags(monkeypatch, capsys):
     assert json.loads(captured.out)["folders"] == ["Inbox", "Archive"]
 
 
+def test_mail_archive_defaults_to_plan(monkeypatch, capsys):
+    calls = {}
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "move_message", lambda settings, **kwargs: calls.update(kwargs) or {"execute": kwargs["execute"]})
+
+    exit_code = cli.main(["mail", "archive", "--graph-id", "old-id", "--format", "json"])
+
+    assert exit_code == 0
+    assert calls == {"graph_id": "old-id", "destination": "archive", "execute": False}
+    assert json.loads(capsys.readouterr().out)["execute"] is False
+
+
+def test_mail_unarchive_execute(monkeypatch, capsys):
+    calls = {}
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "move_message", lambda settings, **kwargs: calls.update(kwargs) or {"execute": kwargs["execute"]})
+
+    exit_code = cli.main(["mail", "unarchive", "--graph-id", "old-id", "--execute", "--format", "json"])
+
+    assert exit_code == 0
+    assert calls == {"graph_id": "old-id", "destination": "inbox", "execute": True}
+    assert json.loads(capsys.readouterr().out)["execute"] is True
+
+
+def test_mail_migrate_current_state_execute(monkeypatch, capsys):
+    calls = {}
+    monkeypatch.setattr(cli, "load_settings", lambda: object())
+    monkeypatch.setattr(cli, "migrate_current_state", lambda settings, **kwargs: calls.update(kwargs) or {"migrated": True})
+
+    exit_code = cli.main(["mail", "migrate-current-state", "--execute", "--format", "json"])
+
+    assert exit_code == 0
+    assert calls == {"execute": True}
+    assert json.loads(capsys.readouterr().out)["migrated"] is True
+
+
 def test_mail_render_markdown_passes_directories_and_sample(monkeypatch, capsys, tmp_path):
     captured_call = {}
 

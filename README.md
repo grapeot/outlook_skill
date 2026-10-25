@@ -57,7 +57,7 @@ What you need to know up front:
 - **JSON output**: add `--format json` to any command for machine-readable output. Progress bars go to stderr; results go to stdout.
 - **First-time setup**: the human needs to run `auth login` once (opens a browser). After that, token refresh is automatic.
 - **Standard pipeline**: `mail download` → `mail export-md` → grep/search the markdown directory → `mail read --graph-id <id>` for full body → `mail reply`, `mail reply-all`, or `mail send` to compose responses.
-- **Safety**: `reply` and `reply-all` default to creating a draft only — pass `--execute` to actually send. Other write commands (`send`, `invite`, `update`, `delete`) support `--dry-run` validation.
+- **Safety**: `reply` and `reply-all` default to creating a draft only — pass `--execute` to actually send. `archive` and `unarchive` default to a plan and require `--execute` to move. Other write commands (`send`, `invite`, `update`, `delete`) support `--dry-run` validation.
 
 When the human hasn't completed setup, tell them clearly what's missing. Common issues:
 - No `.env`: ask them to copy `.env.example` and edit `OUTLOOK_EMAIL`
@@ -81,7 +81,7 @@ OUTLOOK_ENABLE_LIVE_TESTS=1 .venv/bin/python -m pytest -v -m live_integration
 .venv/bin/python -m outlook_skill.cli mail list-local --limit 5 --format json
 ```
 
-Write operations in tests require additional flags: `OUTLOOK_LIVE_ALLOW_SEND=1` and `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1`. No test sends real email without explicit opt-in.
+Write operations in tests require additional flags: `OUTLOOK_LIVE_ALLOW_SEND=1`, `OUTLOOK_LIVE_ALLOW_MAIL_MOVE=1`, and `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1` for their respective operations. No test sends or moves real email without explicit opt-in.
 
 The library lives in `src/outlook_skill/` (10 modules). The CLI is a thin argparse shell. Architecture and design rationale: [docs/rfc.md](docs/rfc.md). Product description: [docs/prd.md](docs/prd.md).
 
@@ -96,3 +96,7 @@ data/mail/
 ```
 
 All data stays local. Nothing is uploaded or synced to any server beyond the Graph API calls to Microsoft.
+
+The local cache is a current-state model: one row per `(account, graph_id)`, with folder stored as current location rather than identity. Archive/unarchive updates that row after Graph read-back. Legacy databases must first pass `mail migrate-current-state --dry-run` and then be migrated with `--execute` after a backup; the migration resolves duplicate IDs and does not silently delete unreferenced legacy files.
+
+Use `mail archive --graph-id ID` to preview and `mail archive --graph-id ID --execute` to archive. `mail unarchive` has the same contract. The live self-test leaves its message in the final Archive state and never deletes it.

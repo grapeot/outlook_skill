@@ -24,6 +24,8 @@ from .downloader import download_recent_mail, list_local_mail, read_local_mail
 from .errors import OutlookSkillError
 from .exporter import export_local_to_markdown
 from .markdown_renderer import render_maildir_to_markdown
+from .migration import migrate_current_state
+from .mover import move_message
 from .replier import reply_to_message
 from .sender import create_mail_draft, send_mail
 from .spam_triage import add_rule, apply_rules, list_labels, list_rules
@@ -54,6 +56,20 @@ def build_parser() -> argparse.ArgumentParser:
     mail_download.add_argument("--limit", type=int, default=200)
     mail_download.add_argument("--folder", action="append")
     mail_download.add_argument("--format", choices=("json", "text"), default="json")
+
+    for move_command in ("archive", "unarchive"):
+        mail_move = mail_subparsers.add_parser(move_command)
+        mail_move.add_argument("--graph-id", dest="graph_id", required=True)
+        move_mode = mail_move.add_mutually_exclusive_group()
+        move_mode.add_argument("--execute", action="store_true", help="move the server message and reconcile local state")
+        move_mode.add_argument("--dry-run", action="store_true", help="show the plan without moving (also the default)")
+        mail_move.add_argument("--format", choices=("json", "text"), default="json")
+
+    mail_migrate = mail_subparsers.add_parser("migrate-current-state")
+    migrate_mode = mail_migrate.add_mutually_exclusive_group()
+    migrate_mode.add_argument("--execute", action="store_true")
+    migrate_mode.add_argument("--dry-run", action="store_true")
+    mail_migrate.add_argument("--format", choices=("json", "text"), default="json")
 
     mail_list_local = mail_subparsers.add_parser("list-local")
     mail_list_local.add_argument("--limit", type=int, default=50)
@@ -221,6 +237,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                     limit=args.limit,
                     folders=tuple(args.folder) if args.folder else None,
                     progress_callback=create_progress_callback(args.format),
+                )
+                emit_output(payload, args.format)
+                return 0
+            if args.mail_command == "migrate-current-state":
+                payload = migrate_current_state(settings, execute=args.execute and not args.dry_run)
+                emit_output(payload, args.format)
+                return 0
+            if args.mail_command in ("archive", "unarchive"):
+                payload = move_message(
+                    settings,
+                    graph_id=args.graph_id,
+                    destination="archive" if args.mail_command == "archive" else "inbox",
+                    execute=args.execute and not args.dry_run,
                 )
                 emit_output(payload, args.format)
                 return 0

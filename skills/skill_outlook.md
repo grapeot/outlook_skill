@@ -27,6 +27,9 @@ All commands run from the project root.
 
 .venv/bin/python -m outlook_skill.cli mail download --days 7 --limit 200 --format json
 .venv/bin/python -m outlook_skill.cli mail download --days 7 --limit 200 --folder Inbox --folder Archive --format json
+.venv/bin/python -m outlook_skill.cli mail archive --graph-id <id> [--execute] --format json
+.venv/bin/python -m outlook_skill.cli mail unarchive --graph-id <id> [--execute] --format json
+.venv/bin/python -m outlook_skill.cli mail migrate-current-state [--execute] --format json
 
 .venv/bin/python -m outlook_skill.cli mail list-local --limit 50 --format json
 .venv/bin/python -m outlook_skill.cli mail read --subject "<substring>" [--from <substring>] [--latest | --index N | --graph-id <id>] [--full]
@@ -52,7 +55,7 @@ scripts/outlook mail download --days 7 --limit 200 --format json
 
 ### `mail download`
 
-Pulls recent mail from Microsoft Graph. Default folders: `Inbox` + `Archive`. Explicit `--folder` overrides the defaults. Each message is saved as raw `.eml` with a SQLite metadata record. The idempotency key is `(account, folder, uidvalidity="graph", uid=graph_message_id)` — re-running on the same time window skips already-downloaded messages.
+Pulls recent mail from Microsoft Graph. Default folders: `Inbox` + `Archive`. Explicit `--folder` overrides the defaults. Each current message has one raw `.eml` reference and one SQLite row keyed by `(account, graph_id)`. Re-running in the same folder skips an existing message; finding the same Graph ID in another folder updates the existing row's current location instead of inserting a duplicate. `updated_count` reports these relocations. This is not a full mailbox or historical-version sync.
 
 ### `mail read`
 
@@ -60,7 +63,17 @@ Looks up locally cached messages by subject substring or Graph message ID. Queri
 
 ### `mail export-md`
 
-Exports locally cached `.eml` to YAML frontmatter Markdown in `data/mail/markdown/`. Filenames: `{date}_{folder}_{subject-slug}_{short-graph-id}.md`. Optional filters: `--days N`, `--folder`, `--subject`, `--from`. `--force` overwrites existing files.
+Exports locally cached `.eml` to YAML frontmatter Markdown in `data/mail/markdown/`. Filenames: `{date}_{subject-slug}_{graph-id-hash}.md`. Optional filters: `--days N`, `--folder`, `--subject`, `--from`. `--force` overwrites existing files.
+
+### `mail archive` / `mail unarchive`
+
+Moves one message between Inbox and the well-known Archive folder. Bare commands and `--dry-run` return a plan without constructing Graph or store clients; only `--execute` performs the move. Execution uses `POST /me/messages/{id}/move`, reads the returned current ID, and verifies `parentFolderId` before updating the local row. Results distinguish `old_graph_id` / `new_graph_id`, `server_moved`, `readback_verified`, `local_state` (`reconciled`, `not_cached`, `pending`, or `not_run`), and `completed`.
+
+An uncached message may be moved and returns `local_state=not_cached`; no local row is invented. If read-back fails after a successful move, `completed=false` and the local cache is not changed. Do not blindly retry the old ID: inspect `new_graph_id` and current server state first.
+
+### `mail migrate-current-state`
+
+Required once for databases created before the Graph-ID current-state model. Run `--dry-run` first, then back up the DB and files before `--execute`. Dry-run has no network or write side effects. Execute resolves duplicate Graph IDs against current Graph state, fetches current MIME only for groups with differing content hashes, and rebuilds messages and triage labels in one transaction. A duplicate ID returning 404 keeps the latest local candidate with `parent_folder_id=null` and increments `unresolved_duplicate_groups`; it is not presented as server-verified current state. Other Graph errors abort before table replacement. Legacy unreferenced MIME and Markdown files are not silently deleted; clean them only after verification and a restorable backup. Running against an already migrated DB is a no-op.
 
 ### `mail send`
 
@@ -121,8 +134,9 @@ The standard pipeline:
 - `mail download` targets `Inbox` + `Archive`
 - `--folder` overrides the default list
 - `--format json`: results to stdout, progress to stderr
-- Idempotency: `(account, folder, graph, message_id)` — same message in same folder is skipped on re-download
-- Same message in different folders produces separate local records
+- Current identity: `(account, graph_id)` — one row per message; folder is current location, not identity
+- Same message in the same folder is skipped; a folder change updates the existing row and increments `updated_count`
+- Archive/unarchive defaults to a plan and only `--execute` moves the server message
 
 ## Output contract
 
@@ -147,7 +161,7 @@ The standard pipeline:
 }
 ```
 
-`mail export-md` writes files to `data/mail/markdown/` with YAML frontmatter containing `graph_id`, `folder`, `from`, `to`, `cc`, `subject`, `date`, and `body_source`.
+`mail export-md` writes files to `data/mail/markdown/` with YAML frontmatter containing `graph_id`, `folder`, `from`, `to`, `cc`, `subject`, `date`, and `body_source`. Filenames use `{date}_{subject}_{graph-id-hash}.md`, so moving a message does not create a second current export path. Older exports require explicit cleanup after migration.
 
 ## Storage
 
@@ -160,9 +174,9 @@ The standard pipeline:
 
 ## Known caveats
 
-- Idempotency uses Graph message ID. This is stable enough for recent-time-window download but may change if messages move between folders on the server. Long-term synchronization across folder moves would need immutable ID evaluation.
+- Graph requests use `Prefer: IdType="ImmutableId"`, but move still consumes the returned current ID instead of assuming identity can never change. Older IDs outside the current cache are not an alias system.
 - Progress bars write to stderr in JSON mode; stdout contains only the valid JSON result.
-- The system does not extract attachment content, sync folder state, or modify server-side message flags.
+- The system does not extract attachment content, perform full mailbox synchronization, or retain historical folder/content snapshots. Same-folder downloads retain the existing skip optimization, so this is not a complete change feed.
 - Markdown rendering optimizes for AI consumption, not human readability. It strips quotes, tracking infrastructure, and layout tables.
 - **`mail list-local` returns rows ordered by `id` (insertion order), NOT by `received_at` or `internaldate` descending.** When the local SQLite database has accumulated tens of thousands of rows from prior downloads, `list-local --limit 50` returns the *oldest* 50 messages, not the most recent. To find recent mail after a `mail download` run, either (a) filter by date directly in SQLite using the `internaldate` column (ISO-8601, sortable), or (b) use `mail read --subject <substring> --latest` which queries SQLite and respects recency. Do not assume `list-local` shows the latest downloaded messages.
 
@@ -173,3 +187,5 @@ The standard pipeline:
 3. `mail download` returns valid JSON and writes `.eml` files
 4. Re-running on the same folder/time window increases `skipped_existing_count` rather than duplicating writes
 5. `mail export-md` writes canonical `.md` files with clean stdout in JSON mode
+6. `mail migrate-current-state --dry-run` performs no network or writes; execute produces one row per `(account, graph_id)` without silently deleting unreferenced files
+7. Live move verification uses a dedicated self-addressed message and finishes archive → unarchive → final archive, with server and local folder checks and no deletion

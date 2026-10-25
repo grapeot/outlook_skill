@@ -100,6 +100,7 @@ class GraphMailClient:
                             "id": message_id,
                             "internet_message_id": internet_message_id if isinstance(internet_message_id, str) else None,
                             "received_at": received if isinstance(received, str) else None,
+                            "parent_folder_id": value.get("parentFolderId") if isinstance(value.get("parentFolderId"), str) else None,
                         }
                     )
                     if len(results) >= limit:
@@ -107,6 +108,37 @@ class GraphMailClient:
             next_link = payload.get("@odata.nextLink")
             next_url = next_link if isinstance(next_link, str) else None
         return results
+
+    def get_message_metadata(self, *, message_id: str) -> dict[str, object]:
+        return self._get(
+            f"/me/messages/{message_id}",
+            params={"$select": "id,parentFolderId,subject,receivedDateTime"},
+        )
+
+    def move_message(self, *, message_id: str, destination_folder_id: str) -> dict[str, object]:
+        response = self.client.post(
+            f"/me/messages/{message_id}/move",
+            json={"destinationId": destination_folder_id},
+        )
+        if response.status_code == 401:
+            self._refresh_client()
+            response = self.client.post(
+                f"/me/messages/{message_id}/move",
+                json={"destinationId": destination_folder_id},
+            )
+        if response.is_error:
+            raise GraphApiError(
+                f"Graph message move failed with status {response.status_code}",
+                status_code=response.status_code,
+                response_text=response.text,
+            )
+        payload = response.json()
+        if not isinstance(payload, dict) or not isinstance(payload.get("id"), str):
+            raise GraphApiError("Graph move returned no current message ID")
+        return payload
+
+    def get_folder(self, *, folder_id: str) -> dict[str, object]:
+        return self._get(f"/me/mailFolders/{folder_id}", params={"$select": "id,displayName"})
 
     def fetch_message_mime(self, *, message_id: str) -> bytes:
         response = self.client.get(f"/me/messages/{message_id}/$value", headers={"Prefer": IMMUTABLE_ID_HEADER})

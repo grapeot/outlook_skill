@@ -2,13 +2,13 @@
 
 ## Scope
 
-The system covers a deliberately narrow set of Microsoft Graph operations on personal Outlook.com accounts: OAuth2 authentication, mail folder listing, MIME download, local `.eml` + SQLite storage, `.eml` → Markdown rendering, standalone email draft creation, standalone email sending, in-thread reply/reply-all, and small calendar operations: invite creation, event listing, full-event fetch, single-event update, and single-event deletion.
+The system covers a deliberately narrow set of Microsoft Graph operations on personal Outlook.com accounts: OAuth2 authentication, mail folder listing, MIME download, local `.eml` + SQLite current-state storage, `.eml` → Markdown rendering, standalone email draft creation, standalone email sending, in-thread reply/reply-all, single-message archive/unarchive, a one-off current-state migration, and small calendar operations: invite creation, event listing, full-event fetch, single-event update, and single-event deletion.
 
 This scope serves two goals. First, it gives AI workflows a stable, reusable entry point to a personal Outlook.com mailbox — the commands an agent needs to download, read, search, and optionally send email. Second, it draws a hard line at the skill layer: the system never grows into a full mail client or calendar application.
 
 ## Module boundaries
 
-The codebase is organized into ten library modules plus a thin CLI. Each boundary reflects a real architectural seam — a place where responsibilities change, dependencies invert, or test strategies diverge.
+The codebase is organized into focused library modules plus a thin CLI. Each boundary reflects a real architectural seam — a place where responsibilities change, dependencies invert, or test strategies diverge.
 
 ### 1. `config.py` — Configuration resolution
 
@@ -32,17 +32,17 @@ The key design choice is the 401 retry pattern: when any request returns 401, th
 
 ### 4. `downloader.py` — Download orchestration
 
-The central pipeline that connects Graph transport to local storage. For each target folder, it resolves the folder ID, lists recent messages, checks idempotency via `store.has_message()`, fetches MIME for new messages, extracts headers via `email.parser.BytesParser`, and writes both `.eml` and SQLite record.
+The central pipeline that connects Graph transport to local storage. For each target folder, it resolves the folder ID, lists recent messages, and looks up the current row by `(account, graph_id)`. A message already in that folder is skipped. A message seen in a different folder is fetched and its existing row is updated with the current folder and `parentFolderId` instead of inserting a duplicate. This remains a recent-window downloader, not a full synchronization engine.
 
 The progress callback protocol uses keyword-only arguments (`current`, `total`, `downloaded`, `skipped`) and separates progress rendering from download logic. The CLI instantiates a `tqdm`-based callback; library callers can provide their own.
 
 ### 5. `store.py` — Local persistence
 
-SQLite with three tables defined in a single `SCHEMA` string. The `messages` table uses `(account, folder, uidvalidity, uid)` as a composite unique constraint — the same key used for idempotency. The `uid` column is typed as `INTEGER` but stores Graph message ID strings; this is a legacy artifact from the earlier IMAP uid schema and is handled at the application layer.
+SQLite uses three tables. `messages` now enforces `UNIQUE(account, uid)`: Graph ID determines message identity, while `folder` and `parent_folder_id` describe only the current location. `uidvalidity` remains as a legacy provenance column and is no longer part of identity. Triage labels are unique per `(message_uid, label)` so they follow a message across folders.
 
-Schema migration runs on every `MailStore` instantiation via `_migrate_schema()`, which checks for missing columns (currently `label` on `spam_rules`) and adds them with `ALTER TABLE`. This is intentionally minimal — the project does not use a migration framework because the schema surface is small and changes are infrequent.
+The cache keeps current state, not historical snapshots. Saving the same Graph ID updates the existing row and current MIME reference. New MIME filenames use an account plus a hash of the Graph ID; migrated messages may retain their existing path to avoid a large rename. If a move returns a different current ID, `update_message_location()` renames the current MIME and updates the same row, rolling the rename back if the database update fails.
 
-File paths use sanitized components: `@` → `_at_`, `/` → `_`, `=` → `_`. The filename includes account, folder, first 24 chars of the Graph ID, and first 12 chars of the SHA-256 hash.
+Legacy folder-scoped databases are rejected with an instruction to run `mail migrate-current-state`; startup never performs a destructive implicit migration. The explicit migration defaults to a network-free, write-free plan. Execution resolves every duplicate ID against Graph, fetches current MIME only for groups with differing hashes, and rebuilds messages and triage labels in one transaction. Unreferenced legacy files are reported rather than silently deleted so the operator can back them up before cleanup.
 
 ### 6. `markdown_renderer.py` — AI-oriented rendering
 
@@ -60,7 +60,7 @@ The rendering is not lossless. It intentionally discards visual structure (CSS, 
 
 ### 7. `exporter.py` — Structured Markdown export
 
-Reads from SQLite metadata + `.eml` files, applies optional filters (days, folders, subject, from), and writes YAML frontmatter Markdown files. Filenames follow the pattern `{date}_{folder}_{subject-slug}_{short-graph-id}.md`. Existing files are skipped unless `--force` is specified.
+Reads from SQLite metadata + `.eml` files, applies optional filters (days, folders, subject, from), and writes YAML frontmatter Markdown files. Filenames follow the pattern `{date}_{subject-slug}_{graph-id-hash}.md`, so moving a message does not create a second export path. Existing files are skipped unless `--force` is specified. Historical exports produced by older versions require an explicit cleanup; migration does not delete them implicitly.
 
 The YAML frontmatter includes `graph_id`, `folder`, `from`, `to`, `cc`, `subject`, `date`, and `body_source` — enough metadata for an AI agent to correlate the local file back to the Graph origin.
 
@@ -89,6 +89,12 @@ Event mutation has a notification side effect that the library does not manage. 
 An argparse-based command tree that parses arguments, calls library functions, and formats output. The CLI owns two responsibilities that the library does not: progress rendering and output formatting.
 
 Progress bars use `tqdm` and write to stderr in JSON mode to keep stdout clean for machine parsing. The `emit_output()` function dispatches between JSON (pretty-printed, sorted keys) and text (key-value pairs, with nested structures serialized as JSON strings).
+
+### 11. `mover.py` and `migration.py` — Current-state transitions
+
+`mover.py` exposes only archive and unarchive semantics rather than arbitrary folder moves. Both default to a local plan. Execution resolves the destination, performs `POST /me/messages/{id}/move`, reads the returned current ID, and verifies `parentFolderId`. Only then does it update an already-cached row. Uncached messages complete with `local_state=not_cached`; read-back failures return `completed=false` instead of claiming local reconciliation.
+
+`migration.py` is the explicit bridge from the former folder-scoped cache. It never runs implicitly at store startup. Dry-run reports source/canonical counts, duplicate groups, content conflicts, and unreferenced files without network or writes. Execute resolves duplicate IDs against Graph, downloads current MIME only when hashes differ, and swaps both messages and triage-label schemas in a transaction. A duplicate ID that returns 404 retains the latest local candidate with an unverified `parent_folder_id` and is counted in `unresolved_duplicate_groups`; other Graph errors stop the migration before table replacement. It deliberately leaves file deletion to a separate operator-controlled cleanup after backup.
 
 ## Architecture decisions
 
@@ -120,7 +126,7 @@ The download pipeline writes `.eml` to disk before extracting metadata or render
 
 Raw MIME contains the complete email: headers, body parts in all formats (text/plain, text/html), attachments (base64-encoded), and encoding metadata. Any downstream transformation — body extraction, Markdown rendering, attachment parsing — can be re-run from the raw `.eml`. The reverse is not true: you cannot reconstruct MIME headers from Markdown, and you cannot recover an attachment that was never saved.
 
-This principle applies to the idempotency model as well. The system checks for existence before download: if `(account, folder, uidvalidity, uid)` already has a record in SQLite, the message is skipped. The `.eml` is the durable artifact; SQLite is the index.
+This principle applies to the current-state model as well. The system checks `(account, uid)` before download: an existing row in the same folder is skipped, while a folder change refreshes that row. The current `.eml` is the durable artifact; SQLite is the index, not a historical-version store.
 
 ### Why the Markdown renderer is aggressive
 
@@ -147,9 +153,9 @@ Four layers of local data:
 | Metadata | SQLite | `data/mail/mail.db` | Indexed queryable fields |
 | AI Markdown | `.md` files (YAML frontmatter) | `data/mail/markdown/` | AI-consumable text export |
 
-The idempotency key is `(account, folder, uidvalidity, uid)` where `uidvalidity` is the string `"graph"` and `uid` is the Graph message ID. This schema preserves the column structure from the earlier IMAP implementation (`uidvalidity` was originally an IMAP concept) while adapting to Graph's identifier model.
+The current-state identity key is `(account, uid)`, where `uid` is the current Graph message ID. Folder is not part of identity. A moved message updates the existing row and retains one current MIME reference and one current Markdown path. Legacy rows and files are not treated as a historical-version feature; cleanup is an explicit operator action after backup.
 
-Same-message-different-folder is treated as two separate records. If a message exists in both Inbox and Archive, it will be downloaded and stored twice under different folder keys. This is the correct behavior for the current use case (recent-time-window download) but would need revisiting for full-mailbox synchronization.
+Graph move uses the returned current ID and verifies `parentFolderId` before local reconciliation. The existing `Prefer: IdType="ImmutableId"` header remains enabled, but callers still consume the returned ID rather than assuming it can never change. This model does not infer deletions or external moves outside the downloader's recent window.
 
 ## CLI design
 
@@ -159,11 +165,11 @@ When `--format json` is specified, the final result writes to stdout and progres
 
 ### Dry-run as default safety
 
-All send-like commands keep an explicit safety boundary. `mail draft` creates a server-side draft and never sends. `mail send`, `mail reply`, `mail reply-all`, `calendar invite`, `calendar update`, and `calendar delete` support `--dry-run`. In dry-run mode, reply commands create and patch the Graph draft but do not send it; send, invite, update, and delete commands validate the payload without calling their Graph write endpoint. `calendar delete` additionally returns the full event payload on real deletion for auditability. This is the safety default for AI agents that should inspect before executing.
+All send-like commands keep an explicit safety boundary. `mail draft` creates a server-side draft and never sends. `mail send`, `mail reply`, `mail reply-all`, `calendar invite`, `calendar update`, and `calendar delete` support `--dry-run`. In dry-run mode, reply commands create and patch the Graph draft but do not send it; send, invite, update, and delete commands validate the payload without calling their Graph write endpoint. `calendar delete` additionally returns the full event payload on real deletion for auditability. Archive/unarchive and current-state migration default to a plan and require `--execute` for mutation. This is the safety default for AI agents that should inspect before executing.
 
 ### Write gating in tests
 
-Live integration tests default to skip. They require `OUTLOOK_ENABLE_LIVE_TESTS=1` to run. Write operations require additional allow flags: `OUTLOOK_LIVE_ALLOW_SEND=1` for email sending, `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1` for calendar invites. No test sends real email or creates real calendar events without explicit, separate opt-in.
+Live integration tests default to skip. They require `OUTLOOK_ENABLE_LIVE_TESTS=1` to run. Write operations require additional allow flags: `OUTLOOK_LIVE_ALLOW_SEND=1` for email sending, `OUTLOOK_LIVE_ALLOW_MAIL_MOVE=1` for archive/unarchive, and `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1` for calendar invites. No test sends or moves real email or creates real calendar events without explicit, separate opt-in.
 
 ## Error handling
 
@@ -185,7 +191,8 @@ Capabilities explicitly excluded from current scope, with rationale:
 
 - **Attachment content extraction**: requires format-specific parsers (PDF, image, Office documents) that would expand the dependency surface and testing burden
 - **Full-text search index**: SQLite `LIKE` queries are sufficient for the current message volume; a dedicated search engine would add infrastructure complexity without proportional benefit
-- **Server-side message state modification** (read/unread, move, delete): introduces risk of unintended state changes when used by AI agents; the read-only default is a safety property
+- **Server-side read/unread and delete modification**: remains outside scope; single-message archive/unarchive uses plan-by-default and explicit execute instead
+- **Full mailbox and historical-version synchronization**: current-state reconciliation does not preserve every past folder or content version
 - **Background sync daemon**: adds process lifecycle management, scheduling, and failure recovery that belong in infrastructure outside this library
 - **Multi-account management**: each instance serves one account; multi-account orchestration belongs in the calling infrastructure
 - **Calendar full sync, bulk delete, RSVP management**: full sync and bulk operations involve state management that differs from the current single-event read/create/update/delete model; RSVP is left to Outlook's own attendee UI, and event updates deliberately do not manage the notification Graph sends automatically
