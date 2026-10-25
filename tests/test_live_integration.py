@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import cast
 
@@ -77,9 +78,14 @@ def test_live_archive_unarchive_and_final_archive_self():
     )
     assert sent["sent"] is True
 
-    downloaded = download_recent_mail(settings, days=1, limit=25, folders=("Inbox",))
-    messages = cast(list[dict[str, object]], downloaded.get("messages", []))
-    matched = [message for message in messages if message.get("subject") == subject]
+    matched: list[dict[str, object]] = []
+    for _ in range(12):
+        downloaded = download_recent_mail(settings, days=1, limit=25, folders=("Inbox",))
+        messages = cast(list[dict[str, object]], downloaded.get("messages", []))
+        matched = [message for message in messages if message.get("subject") == subject]
+        if matched:
+            break
+        time.sleep(5)
     assert matched
     current_id = cast(str, matched[0]["graph_id"])
 
