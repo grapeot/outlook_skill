@@ -8,16 +8,18 @@ from types import SimpleNamespace
 from typing import cast
 
 from .config import Settings
+from .errors import OutlookSkillError
 from .models import DownloadedMessage, SpamRule, TriageLabel
 
 
-SCHEMA = """
+MESSAGES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account TEXT NOT NULL,
     folder TEXT NOT NULL,
-    uid INTEGER NOT NULL,
-    uidvalidity INTEGER,
+    parent_folder_id TEXT,
+    uid TEXT NOT NULL,
+    uidvalidity TEXT,
     message_id TEXT,
     subject TEXT,
     from_addr TEXT,
@@ -28,9 +30,25 @@ CREATE TABLE IF NOT EXISTS messages (
     mime_path TEXT NOT NULL,
     downloaded_at TEXT NOT NULL,
     sha256 TEXT NOT NULL,
-    UNIQUE(account, folder, uidvalidity, uid)
+    UNIQUE(account, uid)
 );
+"""
 
+TRIAGE_LABELS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS triage_labels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_uid TEXT NOT NULL,
+    folder TEXT NOT NULL,
+    label TEXT NOT NULL,
+    rule_id INTEGER,
+    confidence REAL,
+    labeled_at TEXT NOT NULL,
+    FOREIGN KEY(rule_id) REFERENCES spam_rules(id),
+    UNIQUE(message_uid, label)
+);
+"""
+
+SCHEMA = MESSAGES_SCHEMA + """
 CREATE TABLE IF NOT EXISTS spam_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     rule_name TEXT UNIQUE NOT NULL,
@@ -42,19 +60,7 @@ CREATE TABLE IF NOT EXISTS spam_rules (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS triage_labels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_uid TEXT NOT NULL,
-    folder TEXT NOT NULL,
-    label TEXT NOT NULL,
-    rule_id INTEGER,
-    confidence REAL,
-    labeled_at TEXT NOT NULL,
-    FOREIGN KEY(rule_id) REFERENCES spam_rules(id),
-    UNIQUE(message_uid, folder, label)
-);
-"""
+""" + TRIAGE_LABELS_SCHEMA
 
 
 class MailStore:
@@ -63,11 +69,22 @@ class MailStore:
         self.settings.messages_dir.mkdir(parents=True, exist_ok=True)
         self.settings.data_dir.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(self.settings.db_path)
+        self.connection.row_factory = sqlite3.Row
         self.connection.executescript(SCHEMA)
         self._migrate_schema()
         self.connection.commit()
 
     def _migrate_schema(self) -> None:
+        message_columns = {
+            row[1]
+            for row in self.connection.execute("PRAGMA table_info(messages)").fetchall()
+        }
+        if "parent_folder_id" not in message_columns:
+            self.connection.close()
+            raise OutlookSkillError(
+                "This database uses the legacy folder-scoped message key. "
+                "Run `mail migrate-current-state` before opening it with this version."
+            )
         columns = {
             row[1]
             for row in self.connection.execute("PRAGMA table_info(spam_rules)").fetchall()
@@ -78,12 +95,68 @@ class MailStore:
     def close(self) -> None:
         self.connection.close()
 
-    def has_message(self, *, account: str, folder: str, uidvalidity: str | None, uid: str) -> bool:
+    def get_message(self, *, account: str, uid: str) -> dict[str, object] | None:
         row = self.connection.execute(
-            "SELECT 1 FROM messages WHERE account = ? AND folder = ? AND uidvalidity IS ? AND uid = ?",
-            (account, folder, uidvalidity, uid),
+            "SELECT * FROM messages WHERE account = ? AND uid = ?",
+            (account, uid),
         ).fetchone()
-        return row is not None
+        return dict(row) if row is not None else None
+
+    def has_message(self, *, account: str, uid: str) -> bool:
+        return self.get_message(account=account, uid=uid) is not None
+
+    def update_message_location(
+        self,
+        *,
+        account: str,
+        old_graph_id: str,
+        new_graph_id: str,
+        folder: str,
+        parent_folder_id: str,
+    ) -> dict[str, object]:
+        current = self.get_message(account=account, uid=old_graph_id)
+        if current is None:
+            raise OutlookSkillError(f"Cannot reconcile missing local message: {old_graph_id}")
+        if new_graph_id != old_graph_id and self.get_message(account=account, uid=new_graph_id) is not None:
+            raise OutlookSkillError(f"Cannot reconcile Graph ID collision: {new_graph_id}")
+
+        old_path = Path(str(current["mime_path"]))
+        new_path = old_path
+        renamed = False
+        if new_graph_id != old_graph_id:
+            new_path = self._mime_path(account=account, uid=new_graph_id)
+            if new_path.exists() and new_path != old_path:
+                raise OutlookSkillError(f"Cannot move MIME to an existing path: {new_path}")
+            old_path.replace(new_path)
+            renamed = True
+        try:
+            cursor = self.connection.execute(
+                """
+                UPDATE messages
+                SET uid = ?, folder = ?, parent_folder_id = ?, mime_path = ?
+                WHERE account = ? AND uid = ?
+                """,
+                (new_graph_id, folder, parent_folder_id, str(new_path), account, old_graph_id),
+            )
+            if cursor.rowcount != 1:
+                raise OutlookSkillError(f"Local reconciliation did not update exactly one row: {old_graph_id}")
+            self.connection.execute(
+                "UPDATE triage_labels SET message_uid = ?, folder = ? WHERE message_uid = ?",
+                (new_graph_id, folder, old_graph_id),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            if renamed:
+                new_path.replace(old_path)
+            raise
+        return {
+            "old_graph_id": old_graph_id,
+            "new_graph_id": new_graph_id,
+            "folder": folder,
+            "parent_folder_id": parent_folder_id,
+            "mime_path": str(new_path),
+        }
 
     def save_message(
         self,
@@ -100,23 +173,40 @@ class MailStore:
         internaldate: str | None,
         size: int | None,
         flags_json: str,
+        parent_folder_id: str | None = None,
     ) -> DownloadedMessage:
         sha256 = hashlib.sha256(raw_message).hexdigest()
-        mime_path = self._mime_path(account=account, folder=folder, uid=uid, sha256=sha256)
+        existing = self.get_message(account=account, uid=uid)
+        mime_path = Path(str(existing["mime_path"])) if existing else self._mime_path(account=account, uid=uid)
         mime_path.parent.mkdir(parents=True, exist_ok=True)
-        if not mime_path.exists():
+        if not mime_path.exists() or mime_path.read_bytes() != raw_message:
             mime_path.write_bytes(raw_message)
         downloaded_at = datetime.now(UTC).isoformat()
         self.connection.execute(
             """
             INSERT INTO messages (
-                account, folder, uid, uidvalidity, message_id, subject, from_addr,
+                account, folder, parent_folder_id, uid, uidvalidity, message_id, subject, from_addr,
                 received_at, internaldate, size, flags_json, mime_path, downloaded_at, sha256
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(account, uid) DO UPDATE SET
+                folder = excluded.folder,
+                parent_folder_id = excluded.parent_folder_id,
+                uidvalidity = excluded.uidvalidity,
+                message_id = excluded.message_id,
+                subject = excluded.subject,
+                from_addr = excluded.from_addr,
+                received_at = excluded.received_at,
+                internaldate = excluded.internaldate,
+                size = excluded.size,
+                flags_json = excluded.flags_json,
+                mime_path = excluded.mime_path,
+                downloaded_at = excluded.downloaded_at,
+                sha256 = excluded.sha256
             """,
             (
                 account,
                 folder,
+                parent_folder_id,
                 uid,
                 uidvalidity,
                 message_id,
@@ -289,10 +379,11 @@ class MailStore:
         self.connection.commit()
         row = self.connection.execute(
             """
-            SELECT id, message_uid, folder, label, rule_id, confidence, labeled_at
-            FROM triage_labels WHERE message_uid = ? AND folder = ? AND label = ?
-            """,
-            (message_uid, folder, label),
+                SELECT id, message_uid, folder, label, rule_id, confidence, labeled_at
+                FROM triage_labels WHERE message_uid = ? AND label = ?
+                """,
+                (message_uid, label),
+
         ).fetchone()
         return TriageLabel(
             id=row[0],
@@ -354,12 +445,10 @@ class MailStore:
             for row in rows
         ]
 
-    def _mime_path(self, *, account: str, folder: str, uid: str, sha256: str) -> Path:
+    def _mime_path(self, *, account: str, uid: str) -> Path:
         safe_account = account.replace("@", "_at_")
-        safe_folder = folder.replace("/", "_")
-        safe_uid = uid.replace("/", "_").replace("=", "_")
-        filename = f"{safe_account}_{safe_folder}_{safe_uid[:24]}_{sha256[:12]}.eml"
-        return self.settings.messages_dir / filename
+        uid_hash = hashlib.sha256(uid.encode("utf-8")).hexdigest()[:24]
+        return self.settings.messages_dir / f"{safe_account}_{uid_hash}.eml"
 
 
 def _make_spam_rule(**kwargs: object) -> SpamRule:

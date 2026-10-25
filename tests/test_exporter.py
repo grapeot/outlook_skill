@@ -18,17 +18,19 @@ def test_slugify_truncates_to_limit():
     assert len(result) == 10
 
 
-def test_short_graph_id_returns_last_eight_alnum():
+def test_short_graph_id_returns_stable_sixteen_char_hash():
     gid = "AAkALgAAAAAAHYQDEapmEc2byACqAC-EWg0=="
     short = short_graph_id(gid)
-    assert len(short) == 8
+    assert len(short) == 16
     assert short.isalnum()
+    assert short == short_graph_id(gid)
 
 
 def test_build_md_filename_shape():
     dt = datetime(2026, 4, 16, tzinfo=UTC)
     name = build_md_filename(received_at=dt, folder="Inbox", subject="Hello World", graph_id="ABC123XYZ987")
-    assert name.startswith("2026-04-16_Inbox_Hello-World_")
+    assert name.startswith("2026-04-16_Hello-World_")
+    assert "Inbox" not in name
     assert name.endswith(".md")
 
 

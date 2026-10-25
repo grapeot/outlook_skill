@@ -31,6 +31,7 @@ def download_recent_mail(
     try:
         downloaded: list[dict[str, object]] = []
         skipped = 0
+        updated = 0
         per_folder_messages: list[tuple[str, list[dict[str, str | None]]]] = []
         for folder_name in target_folders:
             folder_id, folder_display_name = client.resolve_folder(folder_name)
@@ -49,7 +50,8 @@ def download_recent_mail(
                     if progress_callback is not None:
                         progress_callback(current=current, total=total, downloaded=len(downloaded), skipped=skipped)
                     continue
-                if store.has_message(account=settings.email, folder=folder_display_name, uidvalidity="graph", uid=graph_id):
+                existing = store.get_message(account=settings.email, uid=graph_id)
+                if existing is not None and existing.get("folder") == folder_display_name:
                     skipped += 1
                     if progress_callback is not None:
                         progress_callback(current=current, total=total, downloaded=len(downloaded), skipped=skipped)
@@ -69,7 +71,10 @@ def download_recent_mail(
                     internaldate=message.get("received_at"),
                     size=len(raw_message),
                     flags_json="",
+                    parent_folder_id=message.get("parent_folder_id"),
                 )
+                if existing is not None:
+                    updated += 1
                 downloaded.append(
                     {
                         "folder": folder_display_name,
@@ -86,6 +91,7 @@ def download_recent_mail(
             "folders": [folder_name for folder_name, _ in per_folder_messages],
             "days": days,
             "downloaded_count": len(downloaded),
+            "updated_count": updated,
             "skipped_existing_count": skipped,
             "messages": downloaded,
         }

@@ -15,7 +15,9 @@ Unit tests cover pure logic with no network dependency:
 - Plain text vs. HTML body selection, HTML-to-Markdown conversion, and noise cleaning
 - Quote section stripping
 - Attachment list rendering
-- SQLite idempotent writes
+- SQLite current-state writes: one row per `(account, graph_id)`, folder relocation without duplicates, returned-ID MIME rename, and legacy-schema rejection
+- Current-state migration: network-free dry-run, Graph-resolved duplicate IDs, current MIME for content conflicts, transactional rebuild, and idempotent already-migrated detection
+- Single-message move: plan-by-default, Graph destination and immutable-header contracts, returned-ID read-back, cached/uncached outcomes, and no local update on read-back failure
 - CLI argument parsing and downstream service call parameters
 - `mail send`: Graph `/me/sendMail` payload construction, body format handling, recipient fields, attachment encoding, and dry-run behavior
 - `mail reply` / `mail reply-all`: Graph `createReply` vs. `createReplyAll` endpoint selection, draft patching, quoted body preservation, attachment upload, operation output, and dry-run no-send behavior
@@ -50,12 +52,13 @@ Live integration tests exercise the full OAuth2 → Graph → local disk pipelin
 - `.eml` files and SQLite records are written to disk
 - Real `.eml` files are exported to canonical `.md`
 - With `OUTLOOK_LIVE_ALLOW_SEND=1`, a test email is sent to self and observed in recent messages
+- With `OUTLOOK_LIVE_ALLOW_SEND=1` and `OUTLOOK_LIVE_ALLOW_MAIL_MOVE=1`, a separate self-addressed test message completes archive → unarchive → final archive; returned IDs and local folder state are checked at every step, and the message is never deleted
 - With `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1`, a future calendar invite is created for self
 - With `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1`, a created invite is rescheduled via `calendar update`, and a follow-up `calendar get` confirms the new time and subject
 - `calendar list` reads events from the default calendar, confirms stable output structure including `event_id`, and correctly distinguishes recurring events
 - `calendar get` can fetch a listed event by `event_id`
 
-This layer defaults to skip. It runs only when `OUTLOOK_ENABLE_LIVE_TESTS=1` is set and a valid OAuth2 configuration is present. Write operations require additional allow flags: `OUTLOOK_LIVE_ALLOW_SEND=1` for email sending, `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1` for calendar invites. No test sends real email or creates real calendar events without explicit, separate opt-in.
+This layer defaults to skip. It runs only when `OUTLOOK_ENABLE_LIVE_TESTS=1` is set and a valid OAuth2 configuration is present. Write operations require additional allow flags: `OUTLOOK_LIVE_ALLOW_SEND=1` for email sending, `OUTLOOK_LIVE_ALLOW_MAIL_MOVE=1` for archive/unarchive, and `OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1` for calendar invites. No test sends or moves real email or creates real calendar events without explicit, separate opt-in.
 
 ## Running tests
 
@@ -71,6 +74,8 @@ Live integration (requires valid OAuth2 config):
 OUTLOOK_ENABLE_LIVE_TESTS=1 .venv/bin/python -m pytest -v -m live_integration
 
 OUTLOOK_ENABLE_LIVE_TESTS=1 OUTLOOK_LIVE_ALLOW_SEND=1 OUTLOOK_LIVE_TEST_TO=your_account@outlook.com .venv/bin/python -m pytest -v -m live_integration tests/test_live_integration.py::test_live_send_mail_to_self
+
+OUTLOOK_ENABLE_LIVE_TESTS=1 OUTLOOK_LIVE_ALLOW_SEND=1 OUTLOOK_LIVE_ALLOW_MAIL_MOVE=1 OUTLOOK_LIVE_TEST_TO=your_account@outlook.com .venv/bin/python -m pytest -v -m live_integration tests/test_live_integration.py::test_live_archive_unarchive_and_final_archive_self
 
 OUTLOOK_ENABLE_LIVE_TESTS=1 OUTLOOK_LIVE_ALLOW_CALENDAR_INVITE=1 OUTLOOK_LIVE_TEST_CALENDAR_TO=your_account@outlook.com .venv/bin/python -m pytest -v -m live_integration tests/test_live_integration.py::test_live_calendar_invite_to_self
 

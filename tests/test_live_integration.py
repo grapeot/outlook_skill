@@ -12,7 +12,8 @@ from outlook_skill.calendar import (
     update_calendar_event,
 )
 from outlook_skill.config import load_settings
-from outlook_skill.downloader import download_recent_mail
+from outlook_skill.downloader import download_recent_mail, read_local_mail
+from outlook_skill.mover import move_message
 from outlook_skill.sender import send_mail
 
 
@@ -53,6 +54,51 @@ def test_live_send_mail_to_self():
     messages = cast(list[dict[str, object]], downloaded.get("messages", []))
     subjects = {message.get("subject") for message in messages}
     assert subject in subjects
+
+
+@pytest.mark.live_integration
+def test_live_archive_unarchive_and_final_archive_self():
+    if os.getenv("OUTLOOK_LIVE_ALLOW_SEND") != "1":
+        pytest.skip("live move test requires OUTLOOK_LIVE_ALLOW_SEND=1")
+    if os.getenv("OUTLOOK_LIVE_ALLOW_MAIL_MOVE") != "1":
+        pytest.skip("live move test requires OUTLOOK_LIVE_ALLOW_MAIL_MOVE=1")
+    recipient = os.getenv("OUTLOOK_LIVE_TEST_TO") or os.getenv("OUTLOOK_EMAIL")
+    if not recipient:
+        pytest.skip("live move test requires OUTLOOK_LIVE_TEST_TO or OUTLOOK_EMAIL")
+
+    settings = load_settings()
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    subject = f"Outlook skill live move test {timestamp}"
+    sent = send_mail(
+        settings,
+        to=(recipient,),
+        subject=subject,
+        body_text=f"Live move test generated at {timestamp}.",
+    )
+    assert sent["sent"] is True
+
+    downloaded = download_recent_mail(settings, days=1, limit=25, folders=("Inbox",))
+    messages = cast(list[dict[str, object]], downloaded.get("messages", []))
+    matched = [message for message in messages if message.get("subject") == subject]
+    assert matched
+    current_id = cast(str, matched[0]["graph_id"])
+
+    archived = move_message(settings, graph_id=current_id, destination="archive", execute=True)
+    assert archived["completed"] is True
+    assert archived["local_state"] == "reconciled"
+    current_id = cast(str, archived["new_graph_id"])
+    assert read_local_mail(settings, graph_id=current_id)["folder"] == "Archive"
+
+    try:
+        unarchived = move_message(settings, graph_id=current_id, destination="inbox", execute=True)
+        current_id = cast(str, unarchived["new_graph_id"])
+        assert unarchived["completed"] is True
+        assert read_local_mail(settings, graph_id=current_id)["folder"] == "Inbox"
+    finally:
+        final_archive = move_message(settings, graph_id=current_id, destination="archive", execute=True)
+        current_id = cast(str, final_archive["new_graph_id"])
+        assert final_archive["completed"] is True
+        assert read_local_mail(settings, graph_id=current_id)["folder"] == "Archive"
 
 
 @pytest.mark.live_integration

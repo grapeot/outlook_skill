@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import UTC, datetime, timedelta
 from email import policy
@@ -202,10 +203,9 @@ def build_md_filename(
     graph_id: str,
 ) -> str:
     date_part = received_at.strftime("%Y-%m-%d") if received_at else "0000-00-00"
-    folder_part = slugify(folder, limit=20) or "folder"
     subject_part = slugify(subject, limit=50) or "no-subject"
     short_id = short_graph_id(graph_id)
-    return f"{date_part}_{folder_part}_{subject_part}_{short_id}.md"
+    return f"{date_part}_{subject_part}_{short_id}.md"
 
 
 def slugify(text: str, *, limit: int) -> str:
@@ -221,10 +221,7 @@ def slugify(text: str, *, limit: int) -> str:
 
 def short_graph_id(graph_id: str) -> str:
     if not graph_id:
-        return "00000000"
-    cleaned = re.sub(r"[^A-Za-z0-9]", "", graph_id)
-    if len(cleaned) < 8:
-        return (cleaned + "0" * 8)[:8]
-    return cleaned[-8:]
+        return "0" * 16
+    return hashlib.sha256(graph_id.encode("utf-8")).hexdigest()[:16]
 
 

@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FOLDERS = ("INBOX", "Archive")
 DEFAULT_DATA_DIR = "data/mail"
 DEFAULT_AUTHORITY = "https://login.microsoftonline.com/consumers"
-DEFAULT_SCOPE = "Mail.Read offline_access"
+DEFAULT_SCOPE = "Mail.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite offline_access"
 DEFAULT_TOKEN_CACHE_PATH = "data/mail/oauth_token_cache.json"
 DEFAULT_GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
 

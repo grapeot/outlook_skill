@@ -8,18 +8,20 @@ It is not an email client. It is not a Graph debugging tool. It is a constrained
 
 ## What it does
 
-The system provides ten capabilities, each with a clear module boundary:
+The system provides the following capabilities, each with a clear module boundary:
 
 1. **Configuration** (`config.py`): environment variables, OAuth2 authority, data directory, token cache path — all resolved at startup from `.env`
 2. **Authentication** (`auth.py`): MSAL public client, interactive browser login, device code fallback, silent refresh, serialized token cache
 3. **Graph transport** (`graph_client.py`): folder resolution (well-known names + custom folders), paginated message listing with `receivedDateTime` filtering, MIME `$value` download with automatic 401 retry
-4. **Download orchestration** (`downloader.py`): iterates folders, applies idempotency check (`account + folder + uidvalidity + uid`), fetches MIME, extracts headers, persists to disk and SQLite, reports progress
-5. **Local storage** (`store.py`): SQLite with three tables (`messages`, `spam_rules`, `triage_labels`), schema migration, unique constraint on `(account, folder, uidvalidity, uid)`, SHA-256 hashing, sanitized file paths
+4. **Download orchestration** (`downloader.py`): iterates folders, looks up current messages by `(account, graph_id)`, fetches new or relocated messages, extracts headers, and updates one current row per message
+5. **Local storage** (`store.py`): SQLite with three tables (`messages`, `spam_rules`, `triage_labels`), guarded one-off schema migration, unique constraint on `(account, uid)`, current MIME paths, and SHA-256 hashing
 6. **Markdown rendering** (`markdown_renderer.py`): parallel `.eml`→`.md` conversion with configurable workers, plain-text preference with HTML fallback, quote stripping, zero-width character removal, tracking URL simplification, marketing layout table unwrapping
 7. **Mail export** (`exporter.py`): YAML frontmatter Markdown export from local SQLite + `.eml`, with folder/subject/date filtering and slug-based filenames
 8. **Standalone send** (`sender.py`): `POST /me/sendMail` with body-format conversion (Markdown→HTML), inline attachments ≤3MB, `saveToSentItems` toggle, dry-run mode
 9. **In-thread reply** (`replier.py`): `createReply` / `createReplyAll` draft flow, attachment upload (inline for ≤3MB, upload session for larger), recipient override, dry-run that creates draft without sending
 10. **Calendar** (`calendar.py`): `POST /me/calendar/events` for creating invites with required/optional attendees, `GET /me/calendar/events` for listing events with recurring-event filtering, `GET /me/calendar/events/{id}` for full-event inspection, `PATCH /me/calendar/events/{id}` for partial single-event updates, and `DELETE /me/calendar/events/{id}` for auditable single-event deletion
+11. **Single-message move** (`mover.py`): plan by default, explicit execute, Graph move plus returned-ID read-back, and one-row local reconciliation for archive/unarchive
+12. **Current-state migration** (`migration.py`): dry-run legacy audit, Graph read-back for duplicate IDs, current MIME resolution for content conflicts, and transactional replacement of folder-scoped keys
 
 A rule-based triage system (`spam_triage.py`) overlays the local message store with deterministic sender/subject/body matching, multi-label classification, and persistent labeling. Current rules (`spam` + `low_value`) cover approximately 29% of a 38,000-message corpus through three rounds of iterative refinement.
 
@@ -57,7 +59,7 @@ This is a different design target from "convert email to readable document." The
 
 ### Constrained scope is a feature
 
-The system deliberately limits itself. No attachment content extraction. No folder state synchronization. No multi-account management. No background daemon. No arbitrary Graph passthrough.
+The system deliberately limits itself. No attachment content extraction. No full mailbox synchronization or historical-version store. No multi-account management. No background daemon. No arbitrary Graph passthrough. Current folder reconciliation is limited to messages encountered by the downloader or explicitly moved by the skill.
 
 These are not missing features. Each boundary reduces the surface area that must be tested, secured, and maintained. A local, single-user, read-first CLI with explicit write commands has a dramatically smaller failure domain than a full email client or synchronization service.
 
@@ -67,7 +69,7 @@ The default download targets are `Inbox` and `Archive`. For most Outlook.com use
 
 ## What it does not do
 
-- Modify message state (read/unread, move, delete) on the server
+- Modify read/unread or delete state on the server (single-message archive/unarchive is supported)
 - Extract or render attachment content
 - Build a local full-text search index
 - Run as a background sync daemon or webhook receiver
@@ -84,7 +86,9 @@ src/outlook_skill/
 ├── auth.py           — MSAL public client, token cache, login/refresh/status
 ├── graph_client.py   — folder resolution, paginated listing, MIME download
 ├── downloader.py     — folder iteration, idempotency, header extraction, progress reporting
-├── store.py          — SQLite schema, CRUD, SHA-256 hashing, schema migration
+├── store.py          — Graph-ID current-state SQLite, CRUD, SHA-256 hashing
+├── mover.py          — single-message archive/unarchive and read-back
+├── migration.py      — explicit legacy-to-current-state migration
 ├── markdown_renderer.py — parallel .eml→.md, HTML cleaning, quote stripping
 ├── exporter.py       — YAML frontmatter export, filtering, slugified filenames
 ├── sender.py         — standalone sendMail, body-format conversion, dry-run
