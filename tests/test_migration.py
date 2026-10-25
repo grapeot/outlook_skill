@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from outlook_skill.config import Settings
-from outlook_skill.errors import OutlookSkillError
+from outlook_skill.errors import GraphApiError, OutlookSkillError
 from outlook_skill.migration import migrate_current_state
 from outlook_skill.store import MailStore
 
@@ -141,6 +141,29 @@ def test_migration_deduplicates_current_graph_id_and_preserves_current_content(m
         store.close()
 
     assert migrate_current_state(settings)["already_migrated"] is True
+
+
+def test_migration_keeps_latest_local_candidate_for_unresolved_404(monkeypatch, tmp_path):
+    settings = make_settings(tmp_path)
+    legacy_db(settings)
+
+    class MissingGraph(FakeGraph):
+        def get_message_metadata(self, *, message_id):
+            raise GraphApiError("missing", status_code=404)
+
+    monkeypatch.setattr("outlook_skill.migration.GraphMailClient", MissingGraph)
+
+    result = migrate_current_state(settings, execute=True)
+
+    assert result["unresolved_duplicate_groups"] == 1
+    store = MailStore(settings)
+    try:
+        current = store.get_message(account="duck@example.com", uid="same-id")
+        assert current["folder"] == "Archive"
+        assert current["parent_folder_id"] is None
+        assert current["mime_path"].endswith("new.eml")
+    finally:
+        store.close()
 
 
 def test_migration_mime_paths_include_message_identity(monkeypatch, tmp_path):

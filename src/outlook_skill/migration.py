@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import Settings
 from .downloader import extract_metadata
+from .errors import GraphApiError
 from .graph_client import GraphMailClient
 from .store import MESSAGES_SCHEMA, TRIAGE_LABELS_SCHEMA
 
@@ -47,11 +48,23 @@ def migrate_current_state(settings: Settings, *, execute: bool = False) -> dict[
         canonical: dict[tuple[str, str], dict[str, object]] = {}
         resolved_ids: dict[tuple[str, str], str] = {}
         unreferenced_paths: set[str] = set()
+        unresolved_groups = 0
         if duplicates:
             graph = GraphMailClient(settings)
         for group in duplicates:
             old_id = str(group[0]["uid"])
-            current = graph.get_message_metadata(message_id=old_id) if graph else None
+            try:
+                current = graph.get_message_metadata(message_id=old_id) if graph else None
+            except GraphApiError as exc:
+                if exc.status_code != 404:
+                    raise
+                selected = max(group, key=lambda row: int(row["id"])).copy()
+                selected["parent_folder_id"] = None
+                canonical[(str(selected["account"]), old_id)] = selected
+                resolved_ids[(str(group[0]["account"]), old_id)] = old_id
+                unreferenced_paths.update(str(row["mime_path"]) for row in group)
+                unresolved_groups += 1
+                continue
             if current is None or not isinstance(current.get("id"), str):
                 raise RuntimeError(f"Could not resolve current Graph message: {old_id}")
             current_id = str(current["id"])
@@ -173,6 +186,8 @@ def migrate_current_state(settings: Settings, *, execute: bool = False) -> dict[
         except Exception:
             connection.rollback()
             raise
+        result["resolved_duplicate_groups"] = len(duplicates) - unresolved_groups
+        result["unresolved_duplicate_groups"] = unresolved_groups
         result["migrated"] = True
         return result
     except Exception:

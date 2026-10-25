@@ -73,7 +73,7 @@ An uncached message may be moved and returns `local_state=not_cached`; no local 
 
 ### `mail migrate-current-state`
 
-Required once for databases created before the Graph-ID current-state model. Run `--dry-run` first, then back up the DB and files before `--execute`. Dry-run has no network or write side effects. Execute resolves duplicate Graph IDs against current Graph state, fetches current MIME only for groups with differing content hashes, and rebuilds messages and triage labels in one transaction. Legacy unreferenced MIME and Markdown files are not silently deleted; clean them only after verification and a restorable backup. Running against an already migrated DB is a no-op.
+Required once for databases created before the Graph-ID current-state model. Run `--dry-run` first, then back up the DB and files before `--execute`. Dry-run has no network or write side effects. Execute resolves duplicate Graph IDs against current Graph state, fetches current MIME only for groups with differing content hashes, and rebuilds messages and triage labels in one transaction. A duplicate ID returning 404 keeps the latest local candidate with `parent_folder_id=null` and increments `unresolved_duplicate_groups`; it is not presented as server-verified current state. Other Graph errors abort before table replacement. Legacy unreferenced MIME and Markdown files are not silently deleted; clean them only after verification and a restorable backup. Running against an already migrated DB is a no-op.
 
 ### `mail send`
 
