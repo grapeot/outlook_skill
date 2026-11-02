@@ -2,6 +2,10 @@
 
 ## Changelog
 
+### 2026-11-01
+
+- Documented the bare-address contract (`person@example.com`) for mail recipient flags and calendar `--to`/`--optional-attendee`, along with diagnostic readback checks for persisted `emailAddress.address` and `isDraft=false`. This is documentation of current behavior, not a recipient parsing or validation change.
+
 ### 2026-10-25
 
 - Replaced the legacy `(account, folder, uidvalidity, uid)` message key with `(account, uid)` for Graph. Each current message now has one SQLite row, one current MIME reference, and one current Markdown export path; folder is location metadata rather than identity, with `parent_folder_id` recorded when Graph provides it.
@@ -102,6 +106,8 @@
 - A third round of `low_value` rules added 3,863 more, bringing combined `spam + low_value` coverage to 11,267 / 38,290, approximately 29.43%.
 
 ## Lessons Learned
+
+- **Display-name angle-bracket strings can persist a name-only draft recipient.** Because `_recipient(address)` emits `{"emailAddress": {"address": address}}` unparsed, Microsoft Graph accepted a draft given `"Example Person <person@example.com>"` but persisted only the recipient name with no `emailAddress.address`. Outlook UI later reported a generic send failure (the exact UI error code/cause was not captured; the malformed recipient was verified on readback and corrected manually). Do not treat draft creation or echoed CLI recipient JSON as readback proof; when diagnosing, inspect persisted `toRecipients`/`ccRecipients`/`bccRecipients` directly, and confirm `isDraft=false` plus the intended recipient `emailAddress.address` rather than relying on `sentDateTime` or diagnostic test sends.
 
 - **The destructive path must never be the default.** 2026-08-20's fix (make the dead `/send` branch actually run) restored the intended behavior but kept a flawed design: sending was the default and doing nothing required an opt-out flag. One month later that default sent a real email during agent-driven use. When a write operation is irreversible, invert the contract: safe default (draft), explicit `--execute` for the irreversible action. Flag-gated destructive actions survive both agent misremembering and stale docs.
 - For a local archiving and indexing-preparation use case, IMAP is a more natural fit than Graph in principle — but Graph's delegated permissions and consistent API surface proved more practical for personal Outlook.com accounts.
