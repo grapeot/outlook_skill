@@ -53,6 +53,11 @@ A convenience wrapper is also available:
 scripts/outlook mail download --days 7 --limit 200 --format json
 ```
 
+### Recipient address format
+
+- **Pass bare email addresses to recipient flags.** Mail `send` and `draft` (`--to`, `--cc`, `--bcc`), `reply` and `reply-all` overrides (`--to`, `--cc`), and calendar `invite` (`--to`, `--optional-attendee`) pass each argument directly as `{"emailAddress": {"address": address}}` with no parsing or validation. Always supply a bare address such as `person@example.com`, never `"Example Person <person@example.com>"`. A display name requires a separate `emailAddress.name` field that the CLI does not expose; set display names in Outlook if needed.
+- **Diagnosing drafts and verifying sends.** Successful draft creation and CLI JSON echoing input recipients are not readback verification and do not prove send readiness. When diagnosing a suspect draft or send failure, read persisted `toRecipients`, `ccRecipients`, and `bccRecipients` and confirm every supplied recipient has a populated `emailAddress.address` (intentionally recipient-less drafts remain allowed). A send attempt is not proof of success: verify `isDraft=false` and the intended recipient `emailAddress.address`, as `sentDateTime` alone may exist on a draft. Never send as a diagnostic probe or bypass user approval.
+
 ### `mail download`
 
 Pulls recent mail from Microsoft Graph. Default folders: `Inbox` + `Archive`. Explicit `--folder` overrides the defaults. Each current message has one raw `.eml` reference and one SQLite row keyed by `(account, graph_id)`. Re-running in the same folder skips an existing message; finding the same Graph ID in another folder updates the existing row's current location instead of inserting a duplicate. `updated_count` reports these relocations. This is not a full mailbox or historical-version sync.
